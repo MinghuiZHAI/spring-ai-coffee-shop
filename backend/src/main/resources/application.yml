@@ -1,0 +1,70 @@
+spring:
+  application:
+    name: atlantic-coffee
+  threads:
+    virtual:
+      enabled: true                       # JDK21 虚拟线程（技术栈 #1/#9）
+  mvc:
+    async:
+      request-timeout: 300000             # SSE 异步请求超时 300s——与 SseEmitter(300_000L)、Nginx 300s 三维度对齐（§3.1）
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:33061}/atlantic_coffee?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false   # 33061=compose 映射端口避让宿主服务；allowPublicKeyRetrieval 供 caching_sha2_password 非加密连接使用（生产启用 TLS 后可移除）
+    username: root
+    password: ${MYSQL_ROOT_PASSWORD:root}   # 本地兜底与根 .env 保持一致；生产必须由 .env 注入强密码
+    hikari:
+      maximum-pool-size: 15               # 技术栈 #19
+      connection-timeout: 3000
+  flyway:
+    enabled: true
+    locations: classpath:db/migration     # V1__init.sql / V2__seed_data.sql
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:63791}           # 63791=compose 映射端口，避让宿主 6379 的本地服务
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:}        # 本地未配 key 时空串占位；首次真实启动前在 .env / 运行配置填入
+      chat:
+        options:
+          model: qwen-plus                # 默认主力模型；IntentAgent 调用级覆盖为 qwen-turbo
+      embedding:
+        options:
+          model: text-embedding-v3
+    vectorstore:
+      redis:
+        # 注意：kb_type 过滤字段无法经属性声明（starter 自动配置不支持 metadata-fields，
+        # spring-ai 已知问题），由自定义 RedisVectorStore bean 显式声明为 TAG 字段（§3.1.1），
+        # index-name/prefix/initialize-schema 一并移入 bean，本块仅保留连接参数
+        uri: redis://${REDIS_HOST:localhost}:${REDIS_PORT:63791}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      logic-delete-field: deleted         # 仅内容型表使用（§1.1）
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+    banner: false
+
+atlantic:                                 # 业务自定义配置段
+  jwt:
+    secret: ${JWT_SECRET:local-dev-secret-0123456789abcdef}   # 本地兜底（≥32 字节）；生产必须由 .env 注入随机密钥
+    access-ttl: 2h
+    refresh-ttl: 7d
+  chat:
+    memory-window: 20                     # 记忆窗口（技术栈 #15）
+    idle-minutes:
+      ai-serving: 30                      # 会话超时按状态区分（总体设计 v1.3 修正 4）
+      human-serving: 120                  # M3 生效
+  refund:
+    approve-delay-seconds: 30             # 申请中 → 已通过
+    success-delay-seconds: 60             # 已通过 → 已到账（两跳，§2.3）
+  recommend:
+    max-candidates: 3                     # 推荐候选上限（技术栈 §12.2 规则边界）
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics

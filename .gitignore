@@ -89,3 +89,7 @@ CLAUDE.md
 # 其他 AI 生成的临时对话或缓存
 *.aichat
 *.aihistory
+
+### 前端（frontend/）###
+node_modules/
+dist/

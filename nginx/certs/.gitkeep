@@ -1,0 +1,2 @@
+# Let's Encrypt 证书目录占位：certbot 签发后放置 fullchain.pem / privkey.pem，
+# 生产 server 块启用 443 ssl 时引用（技术栈 #33）。本地开发不使用证书。

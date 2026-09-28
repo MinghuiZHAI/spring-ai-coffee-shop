@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import HelloWorld from './components/HelloWorld.vue'
+// 全局壳与路由由 AppLayout 承担，这里只挂路由出口
 </script>
 
 <template>
-  <HelloWorld />
+  <RouterView />
 </template>

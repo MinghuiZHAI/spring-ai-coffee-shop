@@ -1,5 +1,10 @@
 import { createApp } from 'vue'
-import './style.css'
+import ElementPlus from 'element-plus'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import 'element-plus/dist/index.css'
+import './styles/tokens.css'
+import './styles/element-plus.scss'
 import App from './App.vue'
+import router from './router'
 
-createApp(App).mount('#app')
+createApp(App).use(router).use(ElementPlus, { locale: zhCn }).mount('#app')

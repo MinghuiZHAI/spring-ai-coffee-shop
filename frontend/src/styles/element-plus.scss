@@ -1,0 +1,59 @@
+/* ============================================================
+   Element Plus 品牌化覆盖（组件级差异集中于此，不散落 scoped 深度选择器）
+   颜色/圆角/字体的全局桥接在 tokens.css（--el-* 变量），本文件只做结构级微调
+   ============================================================ */
+
+/* 按钮：圆角、按压回缩（scale-feedback），主按钮去 EP 默认重投影 */
+.el-button {
+  border-radius: var(--ac-radius-btn);
+  font-weight: 500;
+  transition:
+    background-color var(--ac-dur-fast) var(--ac-ease-enter),
+    border-color var(--ac-dur-fast) var(--ac-ease-enter),
+    color var(--ac-dur-fast) var(--ac-ease-enter),
+    box-shadow var(--ac-dur-fast) var(--ac-ease-enter),
+    transform var(--ac-dur-fast) var(--ac-ease-enter);
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  &.el-button--primary {
+    &:hover {
+      background-color: var(--ac-primary-hover);
+      border-color: var(--ac-primary-hover);
+    }
+  }
+}
+
+/* 卡片：分层圆角 + 蓝调阴影（sm），悬停升级 md 由具体页面按需追加 */
+.el-card {
+  border-radius: var(--ac-radius-card);
+  border-color: var(--ac-border);
+  box-shadow: var(--ac-shadow-sm);
+}
+
+/* 弹层：独立于卡片的更大圆角 */
+.el-dialog {
+  border-radius: var(--ac-radius-overlay);
+}
+
+.el-drawer {
+  border-radius: 0;
+}
+
+/* 消息提示与气泡：轻量圆角对齐按钮 */
+.el-message {
+  border-radius: var(--ac-radius-btn);
+  border-color: var(--ac-border);
+}
+
+/* 输入：焦点环对齐品牌 ring 色 */
+.el-input__wrapper,
+.el-textarea__inner {
+  border-radius: var(--ac-radius-input);
+
+  &.is-focus {
+    box-shadow: 0 0 0 1px var(--ac-ring) inset;
+  }
+}

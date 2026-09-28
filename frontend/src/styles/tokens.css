@@ -1,0 +1,150 @@
+/* ============================================================
+   Atlantic Coffee · 设计 Token（深海航线 Deep Current）
+   唯一来源：所有颜色/字体/圆角/阴影/动效从这里取值，组件内不写裸 hex
+   配套文档：docs/05-编码阶段设计修正记录.md 同期的《M1-6 设计系统方案》
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+
+:root {
+  /* —— 配色 · 品牌盘 —— */
+  --ac-primary: #0369a1;        /* 深海蓝：品牌主色，白字对比 5.0:1 */
+  --ac-primary-hover: #075985;  /* 主色悬停 */
+  --ac-primary-deep: #0c4a6e;   /* 品牌墨色：标题/深色文本 */
+  --ac-sky: #38bdf8;            /* 晴空蓝：装饰点缀（洋流渐变端点），不做文字色 */
+  --ac-tide: #e0f2fe;           /* 浅潮蓝：chip/选中底/图标点缀底 */
+  --ac-cta: #b45309;            /* 烘焙琥珀：点单 CTA 专用，白字对比 4.5:1 */
+  --ac-cta-hover: #92400e;
+
+  /* —— 配色 · 中性盘 —— */
+  --ac-bg: #f5f9fc;             /* 海雾白：页面底色 */
+  --ac-card: #ffffff;
+  --ac-text: #334e62;           /* 正文（深蓝灰） */
+  --ac-text-dim: #5a7a8c;       /* 次要文本 */
+  --ac-border: #dce8f0;
+  --ac-danger: #dc2626;
+  --ac-success: #059669;
+  --ac-warning: #d97706;
+  --ac-ring: #0284c7;           /* 键盘焦点环 */
+
+  /* —— 字体 —— */
+  --ac-font-body: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --ac-font-display: 'Poppins', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+  /* —— 圆角分层（刻意不做全站单一圆角） —— */
+  --ac-radius-card: 16px;
+  --ac-radius-btn: 10px;
+  --ac-radius-input: 10px;
+  --ac-radius-pill: 999px;
+  --ac-radius-overlay: 20px;
+
+  /* —— 阴影三档（蓝调海水阴影，非纯黑） —— */
+  --ac-shadow-sm: 0 1px 2px rgba(12, 74, 110, 0.08);
+  --ac-shadow-md: 0 4px 16px rgba(12, 74, 110, 0.1);
+  --ac-shadow-lg: 0 12px 32px rgba(12, 74, 110, 0.14);
+
+  /* —— 玻璃（仅两处：顶部导航、Chat 抽屉头） —— */
+  --ac-glass-bg: rgba(255, 255, 255, 0.72);
+  --ac-glass-border: rgba(255, 255, 255, 0.5);
+  --ac-glass-blur: blur(14px) saturate(160%);
+
+  /* —— 动效 token（时长按交互复杂度分层，不做单一时长走天下） —— */
+  --ac-dur-fast: 150ms;         /* 悬停/按压 */
+  --ac-dur-base: 240ms;         /* Tab 切换/展开 */
+  --ac-dur-slow: 360ms;         /* 抽屉/弹层 */
+  --ac-ease-enter: cubic-bezier(0.2, 0.8, 0.2, 1); /* 进入：减速到达 */
+  --ac-ease-exit: cubic-bezier(0.4, 0, 1, 1);      /* 退出：加速离开（比进入短） */
+
+  /* —— 间距（消费级留白） —— */
+  --ac-space-1: 4px;
+  --ac-space-2: 8px;
+  --ac-space-3: 12px;
+  --ac-space-4: 16px;
+  --ac-space-5: 20px;
+  --ac-space-6: 24px;
+  --ac-space-8: 32px;
+  --ac-space-10: 40px;
+
+  /* —— 布局尺度 —— */
+  --ac-content-max: 1200px;
+  --ac-nav-h: 64px;             /* PC 顶部导航 */
+  --ac-nav-h-mobile: 56px;      /* 移动端顶栏 */
+  --ac-tabbar-h: 60px;          /* 移动端底部 Tab */
+
+  /* —— 洋流母题（导航下缘 / Tab 激活弧线共用） —— */
+  --ac-current-gradient: linear-gradient(90deg, transparent, var(--ac-primary) 14%, var(--ac-sky) 52%, var(--ac-primary) 88%, transparent);
+
+  /* —— Element Plus 品牌桥接（颜色阶梯按 #0369a1 与白的混比预计算） —— */
+  --el-color-primary: var(--ac-primary);
+  --el-color-primary-dark-2: #025481;
+  --el-color-primary-light-3: #4f96bd;
+  --el-color-primary-light-5: #81b4d0;
+  --el-color-primary-light-7: #b3d2e3;
+  --el-color-primary-light-8: #cce1ec;
+  --el-color-primary-light-9: #e6f0f6;
+  --el-color-danger: var(--ac-danger);
+  --el-color-success: var(--ac-success);
+  --el-color-warning: var(--ac-warning);
+  --el-border-radius-base: var(--ac-radius-btn);
+  --el-font-family: var(--ac-font-body);
+}
+
+/* —— 基础重置 —— */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--ac-font-body);
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--ac-text);
+  background: var(--ac-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-family: var(--ac-font-display);
+  font-weight: 600;
+  color: var(--ac-primary-deep);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* 键盘焦点可见（对比度达标，不可移除） */
+:focus-visible {
+  outline: 2px solid var(--ac-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 无障碍：用户偏好减少动效时，全部动画退化为瞬时 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

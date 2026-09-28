@@ -2,6 +2,7 @@ services:
   mysql:
     image: mysql:8.0
     container_name: atlantic-mysql
+    restart: unless-stopped          # Docker Desktop 重启后自动恢复（脚手架补充）
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: atlantic_coffee
@@ -20,6 +21,7 @@ services:
   redis:
     image: redis:8           # Redis 8：原 Redis Stack 模块（RediSearch 等）已并入开源发行版，
     container_name: atlantic-redis   # 同时承担会话缓存（#15）与向量检索（#13）
+    restart: unless-stopped
     volumes:
       - redis-data:/data
     ports:

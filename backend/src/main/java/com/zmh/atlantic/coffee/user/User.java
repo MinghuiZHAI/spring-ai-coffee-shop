@@ -27,6 +27,9 @@ public class User {
 
     private Integer memberLevel;
 
+    /** 积分余额（V3 迁移补齐；point_record 为审计源）。 */
+    private Integer points;
+
     /** 1 正常 0 禁用。 */
     private Integer status;
 

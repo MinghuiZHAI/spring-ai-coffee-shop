@@ -70,6 +70,12 @@ public class ProductQueryService {
                 splitTags(product.getTags()), groups);
     }
 
+    /** 上架商品全集（AI 推荐工具规则引擎的数据源，技术栈 §12.2 规则边界）。 */
+    public List<Product> listOnShelf() {
+        return productMapper.selectList(new LambdaQueryWrapper<Product>()
+                .eq(Product::getStatus, 1).orderByAsc(Product::getId));
+    }
+
     public static List<String> splitTags(String tags) {
         return tags == null || tags.isBlank() ? List.of() : Arrays.stream(tags.split(",")).map(String::trim).toList();
     }

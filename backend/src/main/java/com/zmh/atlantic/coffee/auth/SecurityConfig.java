@@ -13,6 +13,8 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 
 import java.io.IOException;
 import java.util.List;
@@ -38,15 +40,28 @@ public class SecurityConfig {
         return new InMemoryUserDetailsManager();
     }
 
+    /**
+     * 请求级 SecurityContext 仓储（JWT 无状态场景）：JwtAuthenticationFilter.saveContext 与
+     * SecurityContextHolderFilter 的 deferred 读取必须同源——否则 SSE 异步窗口下授权环节
+     * 读不到认证（401 修复的另一半）。
+     */
     @Bean
-    public JwtAuthenticationFilter jwtAuthenticationFilter(JwtTokenService jwtTokenService) {
-        return new JwtAuthenticationFilter(jwtTokenService);
+    public SecurityContextRepository securityContextRepository() {
+        return new RequestAttributeSecurityContextRepository();
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtFilter) throws Exception {
+    public JwtAuthenticationFilter jwtAuthenticationFilter(JwtTokenService jwtTokenService,
+                                                           SecurityContextRepository securityContextRepository) {
+        return new JwtAuthenticationFilter(jwtTokenService, securityContextRepository);
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtFilter,
+                                                   SecurityContextRepository securityContextRepository) throws Exception {
         http.csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .securityContext(c -> c.securityContextRepository(securityContextRepository))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()

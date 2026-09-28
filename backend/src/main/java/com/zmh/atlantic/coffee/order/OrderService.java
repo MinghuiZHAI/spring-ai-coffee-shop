@@ -255,6 +255,29 @@ public class OrderService {
 
     // ===== 查询 =====
 
+    /**
+     * 按订单号查询本人订单（AI 工具 queryEstimatedTime/queryRefundProgress 的入口，
+     * 详细设计 §3.3）：订单号全局唯一，越权防线在归属校验闭合（40401 不泄露存在性差异）。
+     */
+    public Order requireOwnedByOrderNo(Long userId, String orderNo) {
+        Order order = orderMapper.selectOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getOrderNo, orderNo));
+        if (order == null || !order.getUserId().equals(userId)) {
+            throw new BizException(ResultCode.NOT_FOUND, "订单不存在");
+        }
+        return order;
+    }
+
+    /** 指定订单的最近一笔退款单（退款进度查询，无退款单返回 null）。 */
+    public RefundView latestRefund(Long orderId) {
+        return refundMapper.selectList(new LambdaQueryWrapper<Refund>()
+                        .eq(Refund::getOrderId, orderId).orderByDesc(Refund::getId).last("LIMIT 1"))
+                .stream().findFirst()
+                .map(r -> new RefundView(r.getRefundNo(), r.getAmount(), r.getStatus(),
+                        r.getApplyAt(), r.getFinishedAt()))
+                .orElse(null);
+    }
+
     public CursorPage<OrderBrief> list(Long userId, String status, Long cursor, int limit) {
         var wrapper = new LambdaQueryWrapper<Order>()
                 .eq(Order::getUserId, userId)

@@ -156,6 +156,14 @@
             <artifactId>spring-ai-starter-vector-store-redis</artifactId>
         </dependency>
 
+        <!-- RAG Advisor：QuestionAnswerAdvisor 所在构件（版本由 spring-ai-bom 管理）。
+             1.0 中该类位于 spring-ai-client-chat，1.1 起迁移至本构件且包名改为
+             org.springframework.ai.chat.client.advisor.vectorstore（javap 本地构件核实） -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-advisors-vector-store</artifactId>
+        </dependency>
+
         <!-- 可观测：健康检查与指标端点 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

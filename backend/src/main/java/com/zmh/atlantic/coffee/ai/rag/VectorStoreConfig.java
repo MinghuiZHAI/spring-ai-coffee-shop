@@ -28,7 +28,10 @@ public class VectorStoreConfig {
                 .indexName("atlantic-kb")
                 .prefix("atlantic:kb:")
                 .initializeSchema(true)
-                .metadataFields(RedisVectorStore.MetadataField.tag("kb_type"))      // 1.1.2 实际方法名（javap 核实），非 addMetadataFields
+                // kb_type：四个业务 Agent 的 RAG 过滤字段（§3.1）
+                // doc_id：按文档删旧向量用（§3.4 重建管道"先删后写"，决策 #51）
+                .metadataFields(RedisVectorStore.MetadataField.tag("kb_type"),
+                        RedisVectorStore.MetadataField.tag("doc_id"))   // 1.1.2 实际方法名（javap 核实），非 addMetadataFields
                 .build();
     }
 }

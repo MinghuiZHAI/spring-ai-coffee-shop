@@ -12,6 +12,15 @@ export const PROFILE_USER = {
   phoneMasked: '138****0001',
   role: 'USER',
   memberLevel: 1,
+  /** 累计实付（会员卡升级进度用；后端暂无此接口，静态假数据） */
+  totalPaid: 128,
+}
+
+/** 下一等级目标（升级进度条用，出自 V2《会员与积分规则》KB 文档） */
+export const NEXT_LEVEL = {
+  level: 2,
+  name: 'L2 领航员',
+  threshold: 300,
 }
 
 /** 等级名映射（DB 存 TINYINT 1/2/3，等级名为前端展示职责） */
@@ -26,6 +35,9 @@ export const MEMBER_LEVEL_RULES =
   'L2 领航员：累计实付满 300 元自动升级，积分获取 1.2 倍；L3 船长：累计实付满 1000 元，积分获取 1.5 倍'
 
 export const POINT_BALANCE = 850
+
+/** 积分空态提示（新用户无流水时展示） */
+export const POINT_EMPTY_HINT = '下单即可获得积分，1 元 = 10 积分'
 
 /** 积分使用口径（KB 文档原文） */
 export const POINT_USAGE_NOTE = '当前版本支持积分累积与查询，抵扣与兑换将在后续版本上线'

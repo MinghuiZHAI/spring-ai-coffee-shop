@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import StatusChip from '@/components/StatusChip.vue'
 import {
@@ -8,7 +8,9 @@ import {
   MEMBER_LEVEL_LABEL,
   MEMBER_LEVEL_RULES,
   MY_COUPONS,
+  NEXT_LEVEL,
   POINT_BALANCE,
+  POINT_EMPTY_HINT,
   POINT_RECORDS,
   POINT_USAGE_NOTE,
   PROFILE_USER,
@@ -17,19 +19,56 @@ import {
 import { ORDERS, formatTime } from '@/data/orders'
 
 /**
- * 个人中心（M1-6 步骤 3c，静态假数据）：
- * 用户卡（等级徽章 + 升级规则）→ 积分区（余额 + EARN 流水）→
- * 优惠券（状态筛选 + 券卡四要素 + 领券中心横滚）→ 功能列表。
- * 接后端后由 /api/user/points、/api/user/coupons、/api/user/coupons/claim 替换。
+ * 个人中心 v2（M1-6 步骤 3c 重构）：
+ * 顶部固定区（头像/昵称/等级徽标）→ 会员卡（深海蓝渐变 + 弧线母题 + 当前积分 + 升级进度条）→
+ * 胶囊 Tab（我的积分 / 我的优惠券，客服记录隐藏）→ Tab 内容（各 Tab 独立状态，首次加载骨架屏）。
+ * PC ≥900px 左右两栏（左会员卡粘性 / 右内容），移动端单列。
+ * 接后端后由 /api/user/points、/api/user/coupons、/api/user/coupons/claim 替换；
+ * 累计实付暂无后端接口，升级进度条用静态假数据（totalPaid=128 / L2 阈值 300）。
  */
 const memberLabel = MEMBER_LEVEL_LABEL[PROFILE_USER.memberLevel]
 
-/** 流水行的关联订单号：本地数据用 orders.ts 的 orderNo 展示 */
+/** 升级进度（静态假数据）：累计实付 / 下一级阈值 */
+const progressPercent = computed(() =>
+  Math.min(100, Math.round((PROFILE_USER.totalPaid / NEXT_LEVEL.threshold) * 100)),
+)
+const remainToNext = computed(() => Math.max(0, NEXT_LEVEL.threshold - PROFILE_USER.totalPaid))
+
+/** 流水行的关联订单号 */
 function orderNoOf(relatedOrderId: number): string {
   return ORDERS.find((order) => order.id === relatedOrderId)?.orderNo ?? `#${relatedOrderId}`
 }
 
-/* —— 优惠券状态筛选 —— */
+/* ===== 胶囊 Tab（各 Tab 独立状态：v-show 保持挂载与滚动位置；首次加载骨架屏） ===== */
+type ProfileTab = 'points' | 'coupons'
+
+const TABS: Array<{ key: ProfileTab; label: string }> = [
+  { key: 'points', label: '我的积分' },
+  { key: 'coupons', label: '我的优惠券' },
+]
+
+const activeTab = ref<ProfileTab>('points')
+const tabLoading = reactive({ points: true, coupons: true })
+
+function settleTab(tab: ProfileTab) {
+  setTimeout(() => {
+    tabLoading[tab] = false
+  }, 500)
+}
+
+function switchTab(tab: ProfileTab) {
+  activeTab.value = tab
+  if (tabLoading[tab]) {
+    settleTab(tab)
+  }
+}
+
+onMounted(() => settleTab('points'))
+
+/* ===== 积分 Tab ===== */
+const records = ref([...POINT_RECORDS])
+
+/* ===== 优惠券 Tab（二级状态切换；状态独立于 Tab 切换保留） ===== */
 const COUPON_FILTERS: Array<{ key: CouponStatus; label: string }> = [
   { key: 'UNUSED', label: '未使用' },
   { key: 'USED', label: '已使用' },
@@ -44,13 +83,17 @@ function thresholdText(thresholdAmount: number): string {
   return thresholdAmount > 0 ? `满${thresholdAmount}可用` : '无门槛'
 }
 
-/* —— 交互（静态阶段统一 toast 反馈） —— */
+/* ===== 交互（静态阶段统一 toast 反馈） ===== */
 function onUseCoupon() {
   ElMessage.info('下单时自动抵扣，去菜单挑选饮品')
 }
 
 function onClaim(id: number) {
   ElMessage.success(`领取成功：${CLAIMABLE_TEMPLATES.find((t) => t.id === id)?.name ?? ''}`)
+}
+
+function onGoMenu() {
+  ElMessage.info('即将跳转菜单页')
 }
 
 function onEntry(label: string) {
@@ -60,119 +103,200 @@ function onEntry(label: string) {
 
 <template>
   <div class="profile">
-    <!-- 用户信息卡 -->
-    <section class="profile__user">
+    <!-- 顶部固定区：头像 + 昵称 + 等级徽标 -->
+    <header class="profile__header">
       <span class="profile__avatar" aria-hidden="true">
-        <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
-          <path d="M7 13.5c2.6-2.4 5-2.4 7.5 0s4.9 2.4 7.5 0" stroke="#fff" stroke-width="2.2" stroke-linecap="round" />
+        <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
+          <path d="M7 13.5c2.6-2.4 5-2.4 7.5 0s4.9 2.4 7.5 0" stroke="#fff" stroke-width="2.4" stroke-linecap="round" />
           <path d="M8.5 19c2.2-2 4.2-2 6.5 0s4.3 2 6.5 0" stroke="#7fd1f5" stroke-width="2" stroke-linecap="round" />
         </svg>
       </span>
-      <div class="profile__user-info">
-        <div class="profile__user-row">
-          <span class="profile__nickname">{{ PROFILE_USER.nickname }}</span>
-          <span class="profile__level">{{ memberLabel }}</span>
-        </div>
+      <div class="profile__header-info">
+        <span class="profile__nickname">{{ PROFILE_USER.nickname }}</span>
         <span class="profile__phone">{{ PROFILE_USER.phoneMasked }}</span>
-        <p class="profile__rules">{{ MEMBER_LEVEL_RULES }}</p>
       </div>
-    </section>
+      <span class="profile__level-chip">
+        <span class="profile__level-dot" aria-hidden="true"></span>
+        {{ memberLabel }}
+      </span>
+    </header>
 
-    <!-- 积分区 -->
-    <section class="profile__card">
-      <h3 class="profile__section-title">我的积分</h3>
-      <div class="profile__points">
-        <div class="profile__points-balance">
-          <span class="profile__points-label">积分余额</span>
-          <span class="profile__points-value">{{ POINT_BALANCE }}</span>
-        </div>
-        <p class="profile__points-note">{{ POINT_USAGE_NOTE }}</p>
-      </div>
-      <div class="profile__records">
-        <div v-for="record in POINT_RECORDS" :key="record.id" class="profile__record">
-          <div class="profile__record-info">
-            <span class="profile__record-type">下单获得</span>
-            <span class="profile__record-order">订单 {{ orderNoOf(record.relatedOrderId) }}</span>
-          </div>
-          <div class="profile__record-side">
-            <span class="profile__record-change">+{{ record.changeValue }}</span>
-            <span class="profile__record-time">{{ formatTime(record.createdAt) }}</span>
-          </div>
-        </div>
-      </div>
-    </section>
+    <div class="profile__layout">
+      <!-- 左栏：会员卡（深海蓝渐变 + 弧线母题 + 当前积分 + 升级进度） -->
+      <aside class="profile__side">
+        <section class="member-card">
+          <span class="member-card__level">
+            <span class="member-card__level-dot" aria-hidden="true"></span>
+            {{ memberLabel }}
+          </span>
 
-    <!-- 优惠券 -->
-    <section class="profile__card">
-      <h3 class="profile__section-title">我的优惠券</h3>
-
-      <div class="profile__coupon-filters" role="tablist" aria-label="优惠券状态">
-        <button
-          v-for="filter in COUPON_FILTERS"
-          :key="filter.key"
-          type="button"
-          class="profile__coupon-filter"
-          :class="{ 'is-active': activeCouponFilter === filter.key }"
-          @click="activeCouponFilter = filter.key"
-        >
-          {{ filter.label }}
-        </button>
-      </div>
-
-      <div class="profile__coupon-list">
-        <article
-          v-for="coupon in filteredCoupons"
-          :key="coupon.id"
-          class="coupon"
-          :class="{ 'is-dim': coupon.status !== 'UNUSED' }"
-        >
-          <div class="coupon__face">
-            <span class="coupon__value"><i>¥</i>{{ coupon.discountAmount }}</span>
-            <span class="coupon__threshold">{{ thresholdText(coupon.thresholdAmount) }}</span>
+          <div class="member-card__points">
+            <span class="member-card__points-label">当前积分</span>
+            <span class="member-card__points-value">{{ POINT_BALANCE }}</span>
           </div>
-          <div class="coupon__divider" aria-hidden="true"></div>
-          <div class="coupon__info">
-            <span class="coupon__name">{{ coupon.name }}</span>
-            <span class="coupon__expire">有效期至 {{ coupon.expireAt }}</span>
-            <span v-if="coupon.usedOrderNo" class="coupon__used-order">订单 {{ coupon.usedOrderNo }}</span>
+
+          <div class="member-card__progress">
+            <div class="member-card__progress-head">
+              <span>升级进度</span>
+              <span class="member-card__progress-num">
+                ¥{{ PROFILE_USER.totalPaid }} / ¥{{ NEXT_LEVEL.threshold }}
+              </span>
+            </div>
+            <div
+              class="member-card__progress-track"
+              role="progressbar"
+              :aria-valuenow="progressPercent"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-label="`升级到 ${NEXT_LEVEL.name} 的进度`"
+            >
+              <span
+                class="member-card__progress-fill"
+                :style="{ width: `${progressPercent}%` }"
+              ></span>
+            </div>
+            <p class="member-card__progress-caption">
+              再消费 ¥{{ remainToNext }} 升级 {{ NEXT_LEVEL.name }} · {{ MEMBER_LEVEL_RULES }}
+            </p>
           </div>
-          <el-button
-            v-if="coupon.status === 'UNUSED'"
-            class="el-button--cta coupon__use"
-            size="small"
-            @click="onUseCoupon"
+
+          <!-- 弧线母题：收于卡底，呼应品牌徽标 -->
+          <svg class="member-card__waves" viewBox="0 0 320 64" fill="none" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M-10 42c30-14 60-14 90 0s60 14 90 0 60-14 90 0 60 14 70 8" stroke="rgba(255,255,255,0.22)" stroke-width="2.4" stroke-linecap="round" />
+            <path d="M-10 54c30-14 60-14 90 0s60 14 90 0 60-14 90 0 60 14 70 8" stroke="rgba(125,211,252,0.4)" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </section>
+      </aside>
+
+      <!-- 右栏：胶囊 Tab + 内容（各 Tab 独立状态，v-show 保挂载） -->
+      <div class="profile__main">
+        <div class="profile__tabs" role="tablist" aria-label="个人中心内容">
+          <button
+            v-for="tab in TABS"
+            :key="tab.key"
+            type="button"
+            class="profile__tab"
+            :class="{ 'is-active': activeTab === tab.key }"
+            role="tab"
+            :aria-selected="activeTab === tab.key"
+            @click="switchTab(tab.key)"
           >
-            去使用
-          </el-button>
-          <StatusChip
-            v-else
-            class="coupon__status"
-            :label="COUPON_STATUS_LABEL[coupon.status]"
-            tone="muted"
-          />
-        </article>
+            {{ tab.label }}
+          </button>
+        </div>
 
-        <p v-if="filteredCoupons.length === 0" class="profile__coupon-empty">
-          {{ COUPON_STATUS_LABEL[activeCouponFilter] }}的券暂无记录
-        </p>
-      </div>
-    </section>
+        <!-- 我的积分 -->
+        <section v-show="activeTab === 'points'" class="profile__panel" aria-label="我的积分">
+          <template v-if="tabLoading.points">
+            <div class="skeleton skeleton--block"></div>
+            <div v-for="n in 3" :key="n" class="skeleton skeleton--row"></div>
+          </template>
 
-    <!-- 领券中心 -->
-    <section class="profile__card">
-      <h3 class="profile__section-title">领券中心</h3>
-      <div class="profile__claim-rail">
-        <article v-for="template in CLAIMABLE_TEMPLATES" :key="template.id" class="claim-card">
-          <span class="claim-card__value"><i>¥</i>{{ template.discountAmount }}</span>
-          <span class="claim-card__threshold">{{ thresholdText(template.thresholdAmount) }}</span>
-          <span class="claim-card__name">{{ template.name }}</span>
-          <span class="claim-card__valid">领取后 {{ template.validDays }} 天内有效</span>
-          <el-button class="el-button--cta claim-card__btn" size="small" @click="onClaim(template.id)">
-            领取
-          </el-button>
-        </article>
+          <template v-else>
+            <div class="points-balance">
+              <span class="points-balance__label">当前余额</span>
+              <span class="points-balance__value">{{ POINT_BALANCE }}</span>
+              <span class="points-balance__unit">分</span>
+            </div>
+
+            <!-- 空态：新用户无流水（假数据有记录时不显示） -->
+            <div v-if="records.length === 0" class="points-empty">
+              <p class="points-empty__hint">{{ POINT_EMPTY_HINT }}</p>
+              <el-button class="el-button--cta" size="small" @click="onGoMenu">去菜单点单</el-button>
+            </div>
+
+            <ul v-else class="points-records">
+              <li v-for="record in records" :key="record.id" class="points-record">
+                <div class="points-record__info">
+                  <span class="points-record__type">获得</span>
+                  <span class="points-record__order">订单 {{ orderNoOf(record.relatedOrderId) }}</span>
+                </div>
+                <span class="points-record__change">+{{ record.changeValue }}</span>
+                <span class="points-record__time">{{ formatTime(record.createdAt) }}</span>
+              </li>
+            </ul>
+
+            <p class="points-usage">{{ POINT_USAGE_NOTE }}</p>
+          </template>
+        </section>
+
+        <!-- 我的优惠券 -->
+        <section v-show="activeTab === 'coupons'" class="profile__panel" aria-label="我的优惠券">
+          <template v-if="tabLoading.coupons">
+            <div v-for="n in 3" :key="n" class="skeleton skeleton--row"></div>
+          </template>
+
+          <template v-else>
+            <!-- 二级状态切换 -->
+            <div class="profile__coupon-filters" role="tablist" aria-label="优惠券状态">
+              <button
+                v-for="filter in COUPON_FILTERS"
+                :key="filter.key"
+                type="button"
+                class="profile__coupon-filter"
+                :class="{ 'is-active': activeCouponFilter === filter.key }"
+                @click="activeCouponFilter = filter.key"
+              >
+                {{ filter.label }}
+              </button>
+            </div>
+
+            <div class="coupon-list">
+              <article
+                v-for="coupon in filteredCoupons"
+                :key="coupon.id"
+                class="coupon"
+                :class="{ 'is-dim': coupon.status !== 'UNUSED' }"
+              >
+                <div class="coupon__face">
+                  <span class="coupon__value"><i>¥</i>{{ coupon.discountAmount }}</span>
+                  <span class="coupon__threshold">{{ thresholdText(coupon.thresholdAmount) }}</span>
+                </div>
+                <div class="coupon__info">
+                  <span class="coupon__name">{{ coupon.name }}</span>
+                  <span class="coupon__expire">有效期至 {{ coupon.expireAt }}</span>
+                  <span v-if="coupon.usedOrderNo" class="coupon__expire">
+                    订单 {{ coupon.usedOrderNo }} · {{ COUPON_STATUS_LABEL[coupon.status] }}
+                  </span>
+                </div>
+                <el-button
+                  v-if="coupon.status === 'UNUSED'"
+                  class="el-button--cta coupon__use"
+                  size="small"
+                  @click="onUseCoupon"
+                >
+                  去使用
+                </el-button>
+                <StatusChip
+                  v-else
+                  class="coupon__status"
+                  :label="COUPON_STATUS_LABEL[coupon.status]"
+                  tone="muted"
+                />
+              </article>
+
+              <p v-if="filteredCoupons.length === 0" class="coupon-list__empty">
+                {{ COUPON_STATUS_LABEL[activeCouponFilter] }}的券暂无记录
+              </p>
+            </div>
+
+            <!-- 领券中心 -->
+            <h3 class="profile__sub-title">领券中心</h3>
+            <div class="claim-rail">
+              <article v-for="template in CLAIMABLE_TEMPLATES" :key="template.id" class="claim-card">
+                <span class="claim-card__value"><i>¥</i>{{ template.discountAmount }}</span>
+                <span class="claim-card__threshold">{{ thresholdText(template.thresholdAmount) }}</span>
+                <span class="claim-card__name">{{ template.name }}</span>
+                <span class="claim-card__valid">领取后 {{ template.validDays }} 天内有效</span>
+                <el-button class="el-button--cta claim-card__btn" size="small" @click="onClaim(template.id)">
+                  领取
+                </el-button>
+              </article>
+            </div>
+          </template>
+        </section>
       </div>
-    </section>
+    </div>
 
     <!-- 功能列表 -->
     <section class="profile__card profile__entries">
@@ -226,20 +350,17 @@ function onEntry(label: string) {
   display: flex;
   flex-direction: column;
   gap: var(--ac-space-4);
-  max-width: 720px;
+  max-width: 1080px;
   margin: 0 auto;
+  /* 移动端为底部 Tab 预留高度 */
+  padding-bottom: calc(var(--ac-tabbar-h) + var(--ac-space-6));
 }
 
-/* ===== 用户信息卡 ===== */
-.profile__user {
+/* ===== 顶部固定区 ===== */
+.profile__header {
   display: flex;
   align-items: center;
-  gap: var(--ac-space-4);
-  padding: var(--ac-space-5);
-  background: var(--ac-card);
-  border: 1px solid var(--ac-border);
-  border-radius: var(--ac-radius-card);
-  box-shadow: var(--ac-shadow-sm);
+  gap: var(--ac-space-3);
 }
 
 .profile__avatar {
@@ -247,23 +368,18 @@ function onEntry(label: string) {
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 56px;
-  height: 56px;
+  width: 44px;
+  height: 44px;
   background: var(--ac-primary);
   border-radius: var(--ac-radius-pill);
 }
 
-.profile__user-info {
+.profile__header-info {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
-}
-
-.profile__user-row {
-  display: flex;
-  align-items: center;
-  gap: var(--ac-space-2);
 }
 
 .profile__nickname {
@@ -272,121 +388,243 @@ function onEntry(label: string) {
   color: var(--ac-primary-deep);
 }
 
-.profile__level {
-  padding: 1px 8px;
-  font-size: 11px;
+.profile__phone {
+  font-size: 12px;
+  color: var(--ac-text-dim);
+}
+
+/* 等级徽标：晴空蓝点缀 */
+.profile__level-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--ac-primary);
+  color: #0284c7;
   background: var(--ac-tide);
+  border: 1px solid rgba(56, 189, 248, 0.4);
   border-radius: var(--ac-radius-pill);
 }
 
-.profile__phone {
-  font-size: 13px;
-  color: var(--ac-text-dim);
+.profile__level-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--ac-sky);
+  border-radius: var(--ac-radius-pill);
 }
 
-.profile__rules {
-  margin: var(--ac-space-1) 0 0;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--ac-text-dim);
-}
-
-/* ===== 卡片通用 ===== */
-.profile__card {
-  padding: var(--ac-space-5);
-  background: var(--ac-card);
-  border: 1px solid var(--ac-border);
-  border-radius: var(--ac-radius-card);
-  box-shadow: var(--ac-shadow-sm);
-}
-
-.profile__section-title {
-  margin-bottom: var(--ac-space-3);
-  font-size: 15px;
-  font-weight: 600;
-}
-
-/* ===== 积分 ===== */
-.profile__points {
+/* ===== 双栏布局 ===== */
+.profile__layout {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: var(--ac-space-4);
-  padding-bottom: var(--ac-space-3);
-  border-bottom: 1px dashed var(--ac-border);
 }
 
-.profile__points-balance {
+.profile__side {
+  min-width: 0;
+}
+
+.profile__main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-space-4);
+  min-width: 0;
+}
+
+/* ===== 会员卡（深海蓝渐变 + 弧线母题，全页视觉重心） ===== */
+.member-card {
+  position: relative;
+  overflow: hidden;
+  padding: var(--ac-space-5);
+  color: #fff;
+  background: linear-gradient(140deg, #0c4a6e 0%, #0369a1 52%, #0e7ab8 100%);
+  border-radius: var(--ac-radius-overlay);
+  box-shadow: var(--ac-shadow-lg);
+}
+
+.member-card__level {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.16);
+  border: 1px solid rgba(125, 211, 252, 0.45);
+  border-radius: var(--ac-radius-pill);
+}
+
+.member-card__level-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--ac-sky);
+  border-radius: var(--ac-radius-pill);
+}
+
+.member-card__points {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-space-2);
+  margin: var(--ac-space-6) 0 var(--ac-space-5);
+}
+
+.member-card__points-label {
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.member-card__points-value {
+  font-family: var(--ac-font-display);
+  font-size: 44px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.member-card__progress-head {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--ac-space-2);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.member-card__progress-num {
+  font-family: var(--ac-font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.member-card__progress-track {
+  height: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: var(--ac-radius-pill);
+}
+
+.member-card__progress-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--ac-sky), #7dd3fc);
+  border-radius: var(--ac-radius-pill);
+  transition: width var(--ac-dur-slow) var(--ac-ease-enter);
+}
+
+.member-card__progress-caption {
+  margin: var(--ac-space-2) 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.member-card__waves {
+  position: absolute;
+  inset: auto 0 -2px 0;
+  width: 100%;
+  height: 64px;
+  pointer-events: none;
+}
+
+/* ===== 胶囊 Tab（一级：深海蓝实底激活） ===== */
+.profile__tabs {
+  display: flex;
   gap: var(--ac-space-2);
 }
 
-.profile__points-label {
+.profile__tab {
+  padding: 9px var(--ac-space-5);
+  font-family: var(--ac-font-body);
+  font-size: 14px;
+  color: var(--ac-text-dim);
+  background: var(--ac-card);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-pill);
+  transition:
+    background-color var(--ac-dur-fast) var(--ac-ease-enter),
+    color var(--ac-dur-fast) var(--ac-ease-enter),
+    border-color var(--ac-dur-fast) var(--ac-ease-enter);
+  cursor: pointer;
+
+  &.is-active {
+    color: #fff;
+    background: var(--ac-primary);
+    border-color: var(--ac-primary);
+  }
+}
+
+/* ===== Tab 内容面板 ===== */
+.profile__panel {
+  min-height: 320px;
+}
+
+/* 余额：第一层重点信息 */
+.points-balance {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ac-space-2);
+  margin-bottom: var(--ac-space-5);
+}
+
+.points-balance__label {
   font-size: 13px;
   color: var(--ac-text-dim);
 }
 
-.profile__points-value {
+.points-balance__value {
   font-family: var(--ac-font-display);
-  font-size: 32px;
+  font-size: 36px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
   color: var(--ac-primary-deep);
 }
 
-.profile__points-note {
-  margin: 0;
-  max-width: 260px;
-  font-size: 11px;
-  line-height: 1.5;
+.points-balance__unit {
+  font-size: 12px;
   color: var(--ac-text-dim);
-  text-align: right;
 }
 
-.profile__records {
-  margin-top: var(--ac-space-3);
+.points-records {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.profile__record {
+.points-record {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--ac-space-3);
+  padding: var(--ac-space-3) 0;
 
   & + & {
-    margin-top: var(--ac-space-3);
+    border-top: 1px solid var(--ac-border);
   }
 }
 
-.profile__record-info {
+.points-record__info {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 1px;
+  min-width: 0;
 }
 
-.profile__record-type {
+.points-record__type {
   font-size: 14px;
   font-weight: 500;
   color: var(--ac-primary-deep);
 }
 
-.profile__record-order {
+.points-record__order {
   font-size: 11px;
   color: var(--ac-text-dim);
 }
 
-.profile__record-side {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 1px;
-}
-
-.profile__record-change {
+.points-record__change {
   font-family: var(--ac-font-display);
   font-size: 15px;
   font-weight: 600;
@@ -394,8 +632,28 @@ function onEntry(label: string) {
   color: var(--ac-success);
 }
 
-.profile__record-time {
+.points-record__time {
   font-size: 11px;
+  color: var(--ac-text-dim);
+}
+
+.points-usage {
+  margin: var(--ac-space-4) 0 0;
+  font-size: 11px;
+  color: var(--ac-text-dim);
+}
+
+.points-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ac-space-3);
+  padding: var(--ac-space-8) 0;
+}
+
+.points-empty__hint {
+  margin: 0;
+  font-size: 14px;
   color: var(--ac-text-dim);
 }
 
@@ -428,25 +686,25 @@ function onEntry(label: string) {
   }
 }
 
-.profile__coupon-list {
+.coupon-list {
   display: flex;
   flex-direction: column;
   gap: var(--ac-space-3);
 }
 
-/* 券卡：左面额 + 虚线分割 + 信息/操作 */
+/* 可用券：琥珀边框；不可用：灰边框 + 半透明（历史可见） */
 .coupon {
   display: flex;
   align-items: center;
   gap: var(--ac-space-4);
-  padding: var(--ac-space-4);
+  padding: var(--ac-space-3) var(--ac-space-4);
   background: var(--ac-card);
-  border: 1px solid var(--ac-border);
+  border: 1.5px solid var(--ac-cta);
   border-radius: var(--ac-radius-card);
-  box-shadow: var(--ac-shadow-sm);
 
   &.is-dim {
-    opacity: 0.62;
+    opacity: 0.65;
+    border-color: var(--ac-border);
   }
 }
 
@@ -455,34 +713,40 @@ function onEntry(label: string) {
   flex: none;
   flex-direction: column;
   align-items: center;
-  width: 76px;
+  justify-content: center;
+  width: 72px;
+  padding: var(--ac-space-2) 0;
+  background: var(--ac-cta);
+  border-radius: 12px;
+}
+
+.coupon.is-dim .coupon__face {
+  background: var(--ac-border);
 }
 
 .coupon__value {
   font-family: var(--ac-font-display);
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
-  color: var(--ac-cta);
+  color: #fff;
 
   i {
     margin-right: 1px;
-    font-size: 14px;
+    font-size: 13px;
     font-style: normal;
     font-weight: 500;
   }
 }
 
 .coupon__threshold {
-  font-size: 11px;
-  color: var(--ac-text-dim);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.85);
 }
 
-.coupon__divider {
-  align-self: stretch;
-  width: 0;
-  border-left: 1px dashed var(--ac-border);
+.coupon.is-dim .coupon__threshold {
+  color: var(--ac-text-dim);
 }
 
 .coupon__info {
@@ -504,11 +768,6 @@ function onEntry(label: string) {
   color: var(--ac-text-dim);
 }
 
-.coupon__used-order {
-  font-size: 11px;
-  color: var(--ac-text-dim);
-}
-
 .coupon__use {
   flex: none;
 }
@@ -517,20 +776,25 @@ function onEntry(label: string) {
   flex: none;
 }
 
-.profile__coupon-empty {
+.coupon-list__empty {
   margin: var(--ac-space-4) 0;
   text-align: center;
   font-size: 13px;
   color: var(--ac-text-dim);
 }
 
-/* ===== 领券中心横滚 ===== */
-.profile__claim-rail {
+.profile__sub-title {
+  margin: var(--ac-space-6) 0 var(--ac-space-3);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* 领券中心横滚 */
+.claim-rail {
   display: flex;
   gap: var(--ac-space-3);
-  margin: calc(-1 * var(--ac-space-5)) calc(-1 * var(--ac-space-5)) 0;
-  padding: 0 var(--ac-space-5) var(--ac-space-2);
   overflow-x: auto;
+  padding-bottom: var(--ac-space-2);
   scrollbar-width: none;
 
   &::-webkit-scrollbar {
@@ -589,8 +853,12 @@ function onEntry(label: string) {
 }
 
 /* ===== 功能列表 ===== */
-.profile__entries {
+.profile__card {
   padding: var(--ac-space-2) var(--ac-space-4);
+  background: var(--ac-card);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-card);
+  box-shadow: var(--ac-shadow-sm);
 }
 
 .profile__entry {
@@ -647,6 +915,53 @@ function onEntry(label: string) {
   &:hover {
     color: var(--ac-danger);
     opacity: 0.8;
+  }
+}
+
+/* ===== 骨架屏 ===== */
+.skeleton {
+  background: linear-gradient(90deg, #eef4f8 25%, #f7fafc 37%, #eef4f8 63%);
+  background-size: 400% 100%;
+  border-radius: var(--ac-radius-btn);
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+.skeleton--block {
+  height: 72px;
+  margin-bottom: var(--ac-space-4);
+}
+
+.skeleton--row {
+  height: 52px;
+  margin-bottom: var(--ac-space-3);
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+
+  100% {
+    background-position: 0 0;
+  }
+}
+
+/* ===== PC（≥900px）：左会员卡粘性 + 右内容 ===== */
+@media (min-width: 900px) {
+  .profile {
+    padding-bottom: var(--ac-space-8);
+  }
+
+  .profile__layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: var(--ac-space-6);
+    align-items: start;
+  }
+
+  .profile__side {
+    position: sticky;
+    top: calc(var(--ac-nav-h) + var(--ac-space-6));
   }
 }
 </style>

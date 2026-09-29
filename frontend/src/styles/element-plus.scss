@@ -26,6 +26,19 @@
   }
 }
 
+/* 点单 CTA：烘焙琥珀（加入购物车/去结算），经 EP 内部 CSS 变量注入，无特异性对抗 */
+.el-button--cta {
+  --el-button-bg-color: var(--ac-cta);
+  --el-button-border-color: var(--ac-cta);
+  --el-button-text-color: #ffffff;
+  --el-button-hover-bg-color: var(--ac-cta-hover);
+  --el-button-hover-border-color: var(--ac-cta-hover);
+  --el-button-hover-text-color: #ffffff;
+  --el-button-active-bg-color: var(--ac-cta-hover);
+  --el-button-active-border-color: var(--ac-cta-hover);
+  --el-button-outline-color: var(--ac-cta-hover);
+}
+
 /* 卡片：分层圆角 + 蓝调阴影（sm），悬停升级 md 由具体页面按需追加 */
 .el-card {
   border-radius: var(--ac-radius-card);

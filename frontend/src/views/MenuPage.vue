@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import ProductCard from '@/components/ProductCard.vue'
-import { MENU_CATEGORIES, MENU_ITEMS, type MenuItem } from '@/data/menu'
+import { MENU_CATEGORIES, MENU_ITEMS, categoryOf, type MenuItem } from '@/data/menu'
 
 /**
  * 菜单页（M1-6 步骤 2，静态假数据）：分类胶囊（移动端顶部横滚 / PC 左侧粘性栏）
@@ -15,10 +15,6 @@ const filteredItems = computed(() => MENU_ITEMS.filter((item) => item.categoryId
 
 function countOf(categoryId: number): number {
   return MENU_ITEMS.filter((item) => item.categoryId === categoryId).length
-}
-
-function categoryOf(categoryId: number) {
-  return MENU_CATEGORIES.find((category) => category.id === categoryId)!
 }
 
 /** 步骤 3 接入真实购物车；当前仅以消息反馈点按（静态阶段） */

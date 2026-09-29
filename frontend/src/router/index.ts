@@ -19,10 +19,22 @@ const router = createRouter({
           meta: { title: '菜单' },
         },
         {
+          path: 'cart',
+          name: 'cart',
+          component: () => import('@/views/CartPage.vue'),
+          meta: { title: '购物车' },
+        },
+        {
           path: 'orders',
           name: 'orders',
           component: () => import('@/views/OrdersPage.vue'),
           meta: { title: '订单' },
+        },
+        {
+          path: 'orders/:id',
+          name: 'order-detail',
+          component: () => import('@/views/OrderDetailPage.vue'),
+          meta: { title: '订单详情' },
         },
         {
           path: 'profile',

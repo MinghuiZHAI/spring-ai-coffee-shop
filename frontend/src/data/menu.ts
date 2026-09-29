@@ -60,3 +60,8 @@ export const MENU_ITEMS: MenuItem[] = [
   { id: 24, categoryId: 5, name: '芝士贝果', description: '贝果配芝士抹酱，扎实饱腹', price: 16, tags: ['轻食', '烘焙'] },
   { id: 25, categoryId: 5, name: '海盐芝士蛋糕', description: '海盐平衡甜腻的芝士蛋糕', price: 20, tags: ['甜品', '偏甜', '烘焙'] },
 ]
+
+/** 按分类 id 取分类元数据（图占位渐变/线稿），未命中回退首个分类 */
+export function categoryOf(categoryId: number): MenuCategory {
+  return MENU_CATEGORIES.find((category) => category.id === categoryId) ?? MENU_CATEGORIES[0]!
+}

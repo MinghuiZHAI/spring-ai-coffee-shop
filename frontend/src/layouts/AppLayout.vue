@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
+import { CART_LINES } from '@/data/cart'
 
 /**
  * 全局壳（M1-6 步骤 1）：
@@ -14,6 +15,9 @@ const NAV_ITEMS = [
   { name: 'orders', label: '订单', to: '/orders' },
   { name: 'profile', label: '我的', to: '/profile' },
 ] as const
+
+/** 购物车角标（静态假数据，接后端后由购物车 store 驱动） */
+const cartCount = CART_LINES.reduce((sum, line) => sum + line.quantity, 0)
 </script>
 
 <template>
@@ -56,6 +60,15 @@ const NAV_ITEMS = [
             {{ item.label }}
           </RouterLink>
         </nav>
+
+        <RouterLink to="/cart" class="topnav__cart" aria-label="购物车">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="8" cy="21" r="1" />
+            <circle cx="19" cy="21" r="1" />
+            <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
+          </svg>
+          <span v-if="cartCount > 0" class="topnav__cart-badge">{{ cartCount }}</span>
+        </RouterLink>
 
         <RouterLink to="/profile" class="topnav__avatar" aria-label="个人中心">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
@@ -259,6 +272,50 @@ const NAV_ITEMS = [
     color: var(--ac-primary);
     box-shadow: var(--ac-shadow-sm);
   }
+}
+
+.topnav__cart {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-right: var(--ac-space-2);
+  color: var(--ac-text-dim);
+  border-radius: var(--ac-radius-pill);
+  transition:
+    color var(--ac-dur-fast) var(--ac-ease-enter),
+    box-shadow var(--ac-dur-fast) var(--ac-ease-enter);
+  cursor: pointer;
+
+  svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  &:hover {
+    color: var(--ac-primary);
+    box-shadow: var(--ac-shadow-sm);
+  }
+}
+
+.topnav__cart-badge {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-family: var(--ac-font-display);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  color: #fff;
+  text-align: center;
+  background: var(--ac-cta);
+  border-radius: var(--ac-radius-pill);
 }
 
 /* ===== 内容区 ===== */

@@ -55,15 +55,15 @@ export interface OrderView {
   expireAt: string | null
 }
 
-/** 状态元数据：中文标签 + 色调（chip 分类） */
+/** 状态元数据：中文标签 + 色调（chip 分类；lavender 淡薰衣草紫专用于"待取餐"） */
 export const ORDER_STATUS_META: Record<
   OrderStatus,
-  { label: string; tone: 'warning' | 'primary' | 'success' | 'muted' }
+  { label: string; tone: 'warning' | 'primary' | 'success' | 'muted' | 'lavender' }
 > = {
   PENDING_PAYMENT: { label: '待支付', tone: 'warning' },
   PAID_TODO: { label: '待制作', tone: 'primary' },
   MAKING: { label: '制作中', tone: 'primary' },
-  READY: { label: '待取餐', tone: 'primary' },
+  READY: { label: '待取餐', tone: 'lavender' },
   COMPLETED: { label: '已完成', tone: 'success' },
   CANCELLED: { label: '已取消', tone: 'muted' },
   REFUNDING: { label: '退款中', tone: 'warning' },

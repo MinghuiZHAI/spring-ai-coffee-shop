@@ -64,18 +64,28 @@ function onAction(order: OrderView, action: string) {
       <p class="orders__meta">{{ filteredOrders.length }} 单</p>
     </header>
 
-    <!-- 状态筛选胶囊 -->
+    <!-- 状态筛选：全部固定最左，其余状态横向滚动 -->
     <nav class="orders__filters" aria-label="订单状态筛选">
       <button
-        v-for="filter in FILTERS"
-        :key="filter.key"
         type="button"
         class="orders__filter"
-        :class="{ 'is-active': activeFilter === filter.key }"
-        @click="activeFilter = filter.key"
+        :class="{ 'is-active': activeFilter === 'ALL' }"
+        @click="activeFilter = 'ALL'"
       >
-        {{ filter.label }}
+        全部
       </button>
+      <div class="orders__filters-scroll">
+        <button
+          v-for="filter in FILTERS.slice(1)"
+          :key="filter.key"
+          type="button"
+          class="orders__filter"
+          :class="{ 'is-active': activeFilter === filter.key }"
+          @click="activeFilter = filter.key"
+        >
+          {{ filter.label }}
+        </button>
+      </div>
     </nav>
 
     <!-- 订单卡列表 -->
@@ -168,17 +178,25 @@ function onAction(order: OrderView, action: string) {
   color: var(--ac-text-dim);
 }
 
-/* 状态筛选：移动端顶部横滚 / PC 左对齐换行 */
+/* 状态筛选：全部固定最左；其余在独立滚动区横滚（圆角矩形外观） */
 .orders__filters {
   display: flex;
+  align-items: center;
   gap: var(--ac-space-2);
   position: sticky;
   top: var(--ac-nav-h-mobile);
   z-index: 10;
   margin: calc(-1 * var(--ac-space-4)) calc(-1 * var(--ac-space-4)) var(--ac-space-5);
   padding: var(--ac-space-3) var(--ac-space-4);
-  overflow-x: auto;
   background: var(--ac-bg);
+}
+
+.orders__filters-scroll {
+  display: flex;
+  flex: 1;
+  gap: var(--ac-space-2);
+  min-width: 0;
+  overflow-x: auto;
   scrollbar-width: none;
 
   &::-webkit-scrollbar {
@@ -194,7 +212,7 @@ function onAction(order: OrderView, action: string) {
   color: var(--ac-text-dim);
   background: var(--ac-card);
   border: 1px solid var(--ac-border);
-  border-radius: var(--ac-radius-pill);
+  border-radius: var(--ac-radius-btn);
   cursor: pointer;
   transition:
     background-color var(--ac-dur-fast) var(--ac-ease-enter),

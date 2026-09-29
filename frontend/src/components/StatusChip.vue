@@ -1,8 +1,8 @@
 <script setup lang="ts">
-/** 状态徽标（订单状态/退款状态共用）：label + 色调（warning/primary/success/muted） */
+/** 状态徽标（订单状态/退款状态共用）：label + 色调；lavender 淡薰衣草紫用于区分"待取餐" */
 defineProps<{
   label: string
-  tone: 'warning' | 'primary' | 'success' | 'muted'
+  tone: 'warning' | 'primary' | 'success' | 'muted' | 'lavender'
 }>()
 </script>
 
@@ -37,6 +37,12 @@ defineProps<{
     color: var(--ac-text-dim);
     background: var(--ac-bg);
     border: 1px solid var(--ac-border);
+  }
+
+  /* 淡薰衣草紫：仅"待取餐"，与"待制作/制作中"的浅潮蓝区分（用户指定） */
+  &--lavender {
+    color: #6d28d9;
+    background: #ede9fe;
   }
 }
 </style>

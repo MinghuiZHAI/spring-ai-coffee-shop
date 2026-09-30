@@ -64,12 +64,6 @@ const router = createRouter({
           meta: { title: '优惠券' },
         },
         {
-          path: 'profile/info',
-          name: 'profile-info',
-          component: () => import('@/views/ProfileInfoPage.vue'),
-          meta: { title: '个人资料' },
-        },
-        {
           path: 'wallet/recharge',
           name: 'wallet-recharge',
           component: () => import('@/views/WalletRechargePage.vue'),

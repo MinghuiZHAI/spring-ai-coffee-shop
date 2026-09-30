@@ -52,6 +52,24 @@ const router = createRouter({
           meta: { title: '个人资料' },
         },
         {
+          path: 'profile/points',
+          name: 'profile-points',
+          component: () => import('@/views/ProfilePointsPage.vue'),
+          meta: { title: '积分详情' },
+        },
+        {
+          path: 'profile/coupons',
+          name: 'profile-coupons',
+          component: () => import('@/views/ProfileCouponsPage.vue'),
+          meta: { title: '优惠券' },
+        },
+        {
+          path: 'profile/info',
+          name: 'profile-info',
+          component: () => import('@/views/ProfileInfoPage.vue'),
+          meta: { title: '个人资料' },
+        },
+        {
           path: 'wallet/recharge',
           name: 'wallet-recharge',
           component: () => import('@/views/WalletRechargePage.vue'),

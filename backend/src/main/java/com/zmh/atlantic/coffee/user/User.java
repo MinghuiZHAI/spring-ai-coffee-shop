@@ -30,6 +30,15 @@ public class User {
     /** 积分余额（V3 迁移补齐；point_record 为审计源）。 */
     private Integer points;
 
+    /** 头像 URL（V4；空=默认波浪徽章）。 */
+    private String avatarUrl;
+
+    /** UNKNOWN/MALE/FEMALE（V4，应用层校验）。 */
+    private String gender;
+
+    /** 幸运日（V4，展示用自由文本）。 */
+    private String luckyDay;
+
     /** 1 正常 0 禁用。 */
     private Integer status;
 

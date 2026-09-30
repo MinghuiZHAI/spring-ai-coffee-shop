@@ -107,6 +107,6 @@ public class AuthService {
         redis.opsForValue().set(REFRESH_KEY_PREFIX + user.getId() + ":" + refresh.jti(), "1",
                 jwtProperties.refreshTtl());
         return new TokenResponse(access.token(), refresh.token(), jwtProperties.accessTtl().toSeconds(),
-                new UserInfo(user.getId(), user.getPhone(), user.getNickname(), user.getRole(), user.getMemberLevel()));
+                UserInfo.from(user));
     }
 }

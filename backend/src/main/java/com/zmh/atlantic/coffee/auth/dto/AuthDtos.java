@@ -1,5 +1,6 @@
 package com.zmh.atlantic.coffee.auth.dto;
 
+import com.zmh.atlantic.coffee.user.User;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -29,6 +30,16 @@ public final class AuthDtos {
     public record TokenResponse(String accessToken, String refreshToken, long accessExpiresIn, UserInfo userInfo) {
     }
 
-    public record UserInfo(Long userId, String phone, String nickname, String role, Integer memberLevel) {
+    /**
+     * 用户信息（登录/刷新响应与 GET /api/user/profile 共用，01 v1.3 追加字段口径）。
+     * avatarUrl 空串 = 默认波浪徽章；gender UNKNOWN/MALE/FEMALE；luckyDay 展示用自由文本。
+     */
+    public record UserInfo(Long userId, String phone, String nickname, String role,
+                           Integer memberLevel, String avatarUrl, String gender, String luckyDay) {
+
+        public static UserInfo from(User user) {
+            return new UserInfo(user.getId(), user.getPhone(), user.getNickname(), user.getRole(),
+                    user.getMemberLevel(), user.getAvatarUrl(), user.getGender(), user.getLuckyDay());
+        }
     }
 }

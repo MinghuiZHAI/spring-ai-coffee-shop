@@ -55,7 +55,7 @@ public class MySqlRedisChatMemoryRepository implements ChatMemoryRepository {
         List<ChatMessage> rows = chatMessageMapper.findLatest(Long.valueOf(conversationId), WINDOW);
         Collections.reverse(rows);
         List<Message> messages = rows.stream()
-                .map(r -> MessageCodec.toSpringMessage(r.getRole(), r.getContent()))
+                .map(r -> MessageCodec.toSpringMessage(r.getRole(), r.getContent(), r.getMessageId()))
                 .toList();
         if (!messages.isEmpty()) {
             cacheAll(key, MessageCodec.toStored(messages));
@@ -70,9 +70,12 @@ public class MySqlRedisChatMemoryRepository implements ChatMemoryRepository {
         chatMessageMapper.deleteBySession(Long.valueOf(conversationId));
         // 2) 批量插入本次窗口全量消息（含历史，最多 20 条）
         if (!messages.isEmpty()) {
-            List<ChatMessage> rows = MessageCodec.toStored(messages).stream()
-                    .map(s -> row(Long.valueOf(conversationId), s.role(), s.content()))
-                    .toList();
+            List<MessageCodec.StoredMessage> stored = MessageCodec.toStored(messages);
+            List<Long> turnKeys = assignTurnKeys(stored);
+            List<ChatMessage> rows = new ArrayList<>(stored.size());
+            for (int i = 0; i < stored.size(); i++) {
+                rows.add(row(Long.valueOf(conversationId), stored.get(i), turnKeys.get(i)));
+            }
             chatMessageMapper.insertBatch(rows);
         }
         // 3) 重建 Redis 缓存（先删旧列表，再写入并截断到窗口）
@@ -90,11 +93,42 @@ public class MySqlRedisChatMemoryRepository implements ChatMemoryRepository {
 
     // ===== 内部 =====
 
-    private ChatMessage row(Long sessionId, String role, String content) {
+    /**
+     * 轮次键落列（决策 #66）：USER 行取自身 metadata（本轮新消息由 handler 注入，
+     * 历史行由 toSpring 回填）；AI/AGENT 行取同轮键——saveAll 每次重建都从紧邻 USER 行
+     * 重新推导（1.1.2 AssistantMessage 无 metadata 通道，键由 USER 行跨重建携带）。
+     * AI 行推导后即清除资格：窗口截断切断 USER/AI 对时键为 NULL，宁缺勿串。
+     */
+    static List<Long> assignTurnKeys(List<MessageCodec.StoredMessage> stored) {
+        List<Long> keys = new ArrayList<>(stored.size());
+        Long turnKey = null;
+        for (MessageCodec.StoredMessage s : stored) {
+            Long key;
+            switch (s.role()) {
+                case "USER" -> {
+                    key = s.messageId();
+                    turnKey = key;
+                }
+                case "AI", "AGENT" -> {
+                    key = turnKey;
+                    turnKey = null;
+                }
+                default -> {
+                    key = null;
+                    turnKey = null;
+                }
+            }
+            keys.add(key);
+        }
+        return keys;
+    }
+
+    private ChatMessage row(Long sessionId, MessageCodec.StoredMessage s, Long messageId) {
         ChatMessage m = new ChatMessage();
         m.setSessionId(sessionId);
-        m.setRole(role);
-        m.setContent(content);
+        m.setMessageId(messageId);
+        m.setRole(s.role());
+        m.setContent(s.content());
         return m;
     }
 
@@ -113,7 +147,7 @@ public class MySqlRedisChatMemoryRepository implements ChatMemoryRepository {
         List<Message> messages = new ArrayList<>(cached.size());
         for (String json : cached) {
             MessageCodec.StoredMessage s = read(json);
-            messages.add(MessageCodec.toSpringMessage(s.role(), s.content()));
+            messages.add(MessageCodec.toSpringMessage(s.role(), s.content(), s.messageId()));
         }
         return messages;
     }

@@ -6,7 +6,6 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -30,13 +29,9 @@ public interface ChatMessageMapper extends BaseMapper<ChatMessage> {
     int deleteBySession(@Param("sessionId") Long sessionId);
 
     /** saveAll 快照替换的第 2 步：批量插入本次窗口全量消息（最多 20 条）。 */
-    @Insert("<script>INSERT INTO chat_message (session_id, role, content, tool_calls) VALUES " +
+    @Insert("<script>INSERT INTO chat_message (session_id, message_id, role, content) VALUES " +
             "<foreach collection='messages' item='m' separator=','>" +
-            "(#{m.sessionId}, #{m.role}, #{m.content}, #{m.toolCalls})" +
+            "(#{m.sessionId}, #{m.messageId}, #{m.role}, #{m.content})" +
             "</foreach></script>")
     int insertBatch(@Param("messages") List<ChatMessage> messages);
-
-    /** 会话层收尾：工具调用摘要回填到本轮 AI 消息（content 本身仍由 saveAll 独占写入）。 */
-    @Update("UPDATE chat_message SET tool_calls = #{toolCalls} WHERE id = #{id}")
-    int updateToolCalls(@Param("id") Long id, @Param("toolCalls") String toolCalls);
 }

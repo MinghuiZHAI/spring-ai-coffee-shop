@@ -11,6 +11,7 @@ import com.zmh.atlantic.coffee.ai.agent.RecommendAgent;
 import com.zmh.atlantic.coffee.ai.config.ObservableToolCallingManagerConfig;
 import com.zmh.atlantic.coffee.ai.config.ToolEventNotifier;
 import com.zmh.atlantic.coffee.ai.log.MessageIdGenerator;
+import com.zmh.atlantic.coffee.ai.memory.MessageCodec;
 import com.zmh.atlantic.coffee.ai.prompt.Prompts;
 import com.zmh.atlantic.coffee.ai.session.ChatSession;
 import com.zmh.atlantic.coffee.ai.session.ChatSessionService;
@@ -92,7 +93,7 @@ public class AiSessionHandler implements SessionRouter {
             sse.send(Map.of("type", "intent", "value", outcome.intent().name(),
                     "confidence", Math.round(outcome.confidence() * 100) / 100.0));
             if (outcome.intent() == Intent.FALLBACK) {
-                fallback(session, content, sse);
+                fallback(session, content, messageId, sse);
             } else {
                 stream(session, content, messageId, resolve(outcome.intent()), sse);
             }
@@ -104,9 +105,10 @@ public class AiSessionHandler implements SessionRouter {
     }
 
     /** FALLBACK 直出兜底（决策 #40）：不跑业务 Agent，消息经同一仓储走快照替换落库。 */
-    private void fallback(ChatSession session, String content, SseSender sse) {
+    private void fallback(ChatSession session, String content, long messageId, SseSender sse) {
         chatMemory.add(String.valueOf(session.getId()),
-                List.of(new UserMessage(content), new AssistantMessage(Prompts.FALLBACK_REPLY)));
+                List.of(turnKeyedUserMessage(content, messageId),
+                        new AssistantMessage(Prompts.FALLBACK_REPLY)));
         sse.send(Map.of("type", "delta", "content", Prompts.FALLBACK_REPLY));
         sse.send(Map.of("type", "done", "messageId", latestAiMessageId(session.getId())));
         sse.complete();
@@ -115,8 +117,8 @@ public class AiSessionHandler implements SessionRouter {
     // ===== 业务 Agent 流式生成 =====
 
     private void stream(ChatSession session, String content, long messageId, ChatClient client, SseSender sse) {
-        List<Map<String, Object>> toolCalls = Collections.synchronizedList(new ArrayList<>());
-        // 工具事件通知器：ObservableToolCallingManager 在工具执行环发 tool_start/tool_end（真实 toolCallId）
+        // 工具事件通知器：ObservableToolCallingManager 在工具执行环发 tool_start/tool_end（真实 toolCallId）。
+        // 工具摘要的持久化不经此处（#66：tool_call_log 由 ToolCallLogger 同步写，历史按轮次键关联）。
         ToolEventNotifier notifier = new ToolEventNotifier() {
             @Override
             public void onStart(String toolCallId, String tool, String arguments) {
@@ -126,14 +128,12 @@ public class AiSessionHandler implements SessionRouter {
 
             @Override
             public void onEnd(String toolCallId, String tool, boolean success, int durationMs) {
-                toolCalls.add(Map.of("toolCallId", toolCallId, "tool", tool,
-                        "success", success, "durationMs", durationMs));
                 sse.send(Map.of("type", "tool_end", "toolCallId", toolCallId,
                         "tool", tool, "success", success, "durationMs", durationMs));
             }
         };
         client.prompt()
-                .user(content)
+                .messages(turnKeyedUserMessage(content, messageId))                      // 注入③：轮次键随消息进记忆（决策 #66）
                 .toolContext(Map.of("userId", session.getUserId(),                      // 注入①：工具身份（决策 #53）
                         "messageId", messageId, "sessionId", session.getId(),
                         ObservableToolCallingManagerConfig.NOTIFIER_KEY, notifier))
@@ -146,7 +146,7 @@ public class AiSessionHandler implements SessionRouter {
                     sse.send(Map.of("type", "error", "message", AI_UPSTREAM_ERROR_MESSAGE, "retryable", true));
                     sse.complete();
                 })
-                .doOnComplete(() -> finish(session, sse, toolCalls))
+                .doOnComplete(() -> finish(session, sse))
                 .subscribe();
     }
 
@@ -166,14 +166,20 @@ public class AiSessionHandler implements SessionRouter {
         }
     }
 
-    private void finish(ChatSession session, SseSender sse, List<Map<String, Object>> toolCalls) {
+    private void finish(ChatSession session, SseSender sse) {
         Long aiMessageId = latestAiMessageId(session.getId());
-        if (aiMessageId != null && !toolCalls.isEmpty()) {
-            // 工具调用摘要回填本轮 AI 消息（历史消息接口的渲染数据源，§5.3）
-            chatMessageMapper.updateToolCalls(aiMessageId, json(toolCalls));
-        }
+        // 工具摘要不再回填 chat_message（#66：快照替换下无法幸存，历史接口按轮次键查 tool_call_log）
         sse.send(Map.of("type", "done", "messageId", aiMessageId == null ? 0 : aiMessageId));
         sse.complete();
+    }
+
+    /** 本轮 USER 消息携带轮次键（#66）：MessageChatMemoryAdvisor.before() 原样入记忆，
+     * 仓储组装行时 USER 行取自身 metadata、AI 行由紧邻 USER 行推导；tool_call_log.message_id 同源。 */
+    private UserMessage turnKeyedUserMessage(String content, long messageId) {
+        return UserMessage.builder()
+                .text(content)
+                .metadata(Map.of(MessageCodec.MESSAGE_ID_KEY, messageId))
+                .build();
     }
 
     // ===== 内部 =====
@@ -195,13 +201,5 @@ public class AiSessionHandler implements SessionRouter {
 
     private String str(Object value) {
         return value == null ? "" : String.valueOf(value);
-    }
-
-    private String json(List<Map<String, Object>> toolCalls) {
-        try {
-            return objectMapper.writeValueAsString(toolCalls);
-        } catch (Exception e) {
-            return null;
-        }
     }
 }

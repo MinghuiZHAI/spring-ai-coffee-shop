@@ -1,21 +1,27 @@
 package com.zmh.atlantic.coffee.ai.session;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.zmh.atlantic.coffee.ai.log.ToolCallLog;
+import com.zmh.atlantic.coffee.ai.log.ToolCallLogMapper;
 import com.zmh.atlantic.coffee.common.exception.BizException;
 import com.zmh.atlantic.coffee.common.web.CursorPage;
 import com.zmh.atlantic.coffee.common.web.ResultCode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import lombok.SneakyThrows;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * chat_session / chat_message 管理层（总体设计 §2.1）：会话创建、历史游标分页、
  * close 幂等；消息内容本身由 ai.memory 仓储的 saveAll 独占写入（决策 #52），
  * 本层只维护会话元数据（title/updated_at）与消息读取。
+ * 工具摘要读侧（决策 #66）：按 chat_message.message_id（轮次键）关联 tool_call_log，
+ * 不再依赖已废弃的 chat_message.tool_calls 冗余列。
  */
 @Service
 @RequiredArgsConstructor
@@ -23,7 +29,7 @@ public class ChatSessionService {
 
     private final ChatSessionMapper chatSessionMapper;
     private final ChatMessageMapper chatMessageMapper;
-    private final ObjectMapper objectMapper;
+    private final ToolCallLogMapper toolCallLogMapper;
 
     /** 每次调用都创建新会话（总体设计 §5.2：MVP 选简单方案，前端缓存 sessionId 复用）。 */
     public SessionView create(Long userId) {
@@ -81,7 +87,11 @@ public class ChatSessionService {
                 .lt(cursor != null, ChatMessage::getId, cursor)
                 .orderByDesc(ChatMessage::getId)
                 .last("LIMIT " + capped));
-        List<MessageView> views = rows.stream().map(this::toMessageView).toList();
+        Map<Long, List<ToolCallItem>> toolsByTurn = toolsByTurnKey(rows);
+        List<MessageView> views = rows.stream()
+                .map(m -> toMessageView(m,
+                        m.getMessageId() == null ? List.of() : toolsByTurn.getOrDefault(m.getMessageId(), List.of())))
+                .toList();
         Long nextCursor = rows.size() == capped && !rows.isEmpty()
                 ? rows.get(rows.size() - 1).getId() : null;
         return new CursorPage<>(views, nextCursor);
@@ -125,11 +135,28 @@ public class ChatSessionService {
                 session.getCreatedAt(), session.getUpdatedAt());
     }
 
-    @SneakyThrows
-    private MessageView toMessageView(ChatMessage message) {
-        List<ToolCallItem> toolCalls = message.getToolCalls() == null ? List.of()
-                : objectMapper.readValue(message.getToolCalls(),
-                        objectMapper.getTypeFactory().constructCollectionType(List.class, ToolCallItem.class));
+    /** 按轮次键批量取工具日志（决策 #66）：一次 IN 查询，内存按 message_id 分组，避免逐消息 N+1。 */
+    private Map<Long, List<ToolCallItem>> toolsByTurnKey(List<ChatMessage> rows) {
+        List<Long> turnKeys = rows.stream()
+                .map(ChatMessage::getMessageId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (turnKeys.isEmpty()) {
+            return Map.of();
+        }
+        return toolCallLogMapper.selectList(new LambdaQueryWrapper<ToolCallLog>()
+                        .in(ToolCallLog::getMessageId, turnKeys))
+                .stream()
+                .collect(Collectors.groupingBy(ToolCallLog::getMessageId,
+                        Collectors.mapping(t -> new ToolCallItem(
+                                String.valueOf(t.getId()),                 // 模型原始 toolCallId 未入日志表，以日志行 id 代号（前端仅作 key）
+                                t.getToolName(),
+                                t.getSuccess() != null && t.getSuccess() == 1,
+                                t.getDurationMs()), Collectors.toList())));
+    }
+
+    private MessageView toMessageView(ChatMessage message, List<ToolCallItem> toolCalls) {
         return new MessageView(message.getId(), message.getSessionId(), message.getRole(),
                 message.getContent(), toolCalls, message.getCreatedAt());
     }

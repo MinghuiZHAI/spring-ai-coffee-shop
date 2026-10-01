@@ -75,6 +75,12 @@ const router = createRouter({
           component: () => import('@/views/MerchantPage.vue'),
           meta: { title: '我是商家' },
         },
+        {
+          path: 'chat',
+          name: 'chat',
+          component: () => import('@/views/ChatPage.vue'),
+          meta: { title: 'AI 客服' },
+        },
       ],
     },
     {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
+import ChatWidget from '@/components/ChatWidget.vue'
 import { CART_LINES } from '@/data/cart'
 
 /**
@@ -9,11 +10,13 @@ import { CART_LINES } from '@/data/cart'
  */
 const route = useRoute()
 
-/** 主导航数据：PC 顶部链接与移动端底部 Tab 共用（≤5 项，导航层级原则） */
+/** 主导航数据：PC 顶部链接与移动端底部 Tab 共用（≤5 项，导航层级原则）；
+ * AI 客服仅进移动端底部 Tab（pcHide），PC 入口为 ChatWidget 悬浮球（批次 5 修正 1/2） */
 const NAV_ITEMS = [
-  { name: 'menu', label: '菜单', to: '/menu' },
-  { name: 'orders', label: '订单', to: '/orders' },
-  { name: 'profile', label: '我的', to: '/profile' },
+  { name: 'menu', label: '菜单', to: '/menu', pcHide: false },
+  { name: 'orders', label: '订单', to: '/orders', pcHide: false },
+  { name: 'chat', label: 'AI 客服', to: '/chat', pcHide: true },
+  { name: 'profile', label: '我的', to: '/profile', pcHide: false },
 ] as const
 
 /** 购物车角标（静态假数据，接后端后由购物车 store 驱动） */
@@ -55,7 +58,7 @@ const cartCount = CART_LINES.reduce((sum, line) => sum + line.quantity, 0)
             :key="item.name"
             :to="item.to"
             class="topnav__link"
-            :class="{ 'is-active': route.name === item.name }"
+            :class="{ 'is-active': route.name === item.name, 'topnav__link--pc-hide': item.pcHide }"
           >
             {{ item.label }}
           </RouterLink>
@@ -133,6 +136,23 @@ const cartCount = CART_LINES.reduce((sum, line) => sum + line.quantity, 0)
         </svg>
 
         <svg
+          v-else-if="item.name === 'chat'"
+          class="tabbar__icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.38 8.38 0 0 1-3.4-.7L3 21l1.7-5.1A8.5 8.5 0 1 1 21 11.5Z" />
+          <path d="M8.5 11.5h.01" />
+          <path d="M12.5 11.5h.01" />
+          <path d="M16.5 11.5h.01" />
+        </svg>
+
+        <svg
           v-else
           class="tabbar__icon"
           viewBox="0 0 24 24"
@@ -149,6 +169,9 @@ const cartCount = CART_LINES.reduce((sum, line) => sum + line.quantity, 0)
         <span class="tabbar__label">{{ item.label }}</span>
       </RouterLink>
     </nav>
+
+    <!-- AI 客服（批次 5）：唯一组件——PC 悬浮球+抽屉 / 移动端经 /chat 路由全屏 -->
+    <ChatWidget />
   </div>
 </template>
 
@@ -216,6 +239,11 @@ const cartCount = CART_LINES.reduce((sum, line) => sum + line.quantity, 0)
   display: none;
   align-items: center;
   gap: var(--ac-space-6);
+}
+
+/* AI 客服不进 PC 顶栏（入口为悬浮球），仅移动端底部 Tab 展示 */
+.topnav__link--pc-hide {
+  display: none;
 }
 
 .topnav__link {
@@ -334,7 +362,7 @@ const cartCount = CART_LINES.reduce((sum, line) => sum + line.quantity, 0)
   inset: auto 0 0 0;
   z-index: 100;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   height: calc(var(--ac-tabbar-h) + env(safe-area-inset-bottom, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--ac-card);

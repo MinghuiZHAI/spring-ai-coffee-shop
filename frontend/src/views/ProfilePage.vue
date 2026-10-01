@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { getCoupons } from '@/api/coupon'
 import { getWallet } from '@/api/wallet'
+import { getPoints } from '@/api/user'
 
 /**
  * 个人中心 v5（M1-6 批次 4 重构）：
@@ -17,6 +18,7 @@ const store = useUserStore()
 
 const walletBalance = ref<number | null>(null)
 const couponCount = ref<number | null>(null)
+const pointsBalance = ref<number | null>(null)
 
 const wechatVisible = ref(false)
 
@@ -30,6 +32,11 @@ onMounted(async () => {
     couponCount.value = (await getCoupons('UNUSED')).length
   } catch {
     couponCount.value = null
+  }
+  try {
+    pointsBalance.value = (await getPoints()).balance
+  } catch {
+    pointsBalance.value = null
   }
 })
 
@@ -151,19 +158,19 @@ function onGridTile(tile: (typeof GRID_TILES)[number]) {
 
       <div class="member-card__points">
         <span class="member-card__points-label">当前积分</span>
-        <span class="member-card__points-value">850</span>
+        <span class="member-card__points-value">{{ pointsBalance ?? '--' }}</span>
       </div>
 
       <div class="member-card__progress">
         <div class="member-card__progress-head">
           <span>升级进度</span>
-          <span class="member-card__progress-num">¥128 / ¥300</span>
+          <span class="member-card__progress-num">¥128 / ¥300（示意）</span>
         </div>
-        <div class="member-card__progress-track" role="progressbar" aria-valuenow="43" aria-valuemin="0" aria-valuemax="100" aria-label="升级到 L2 领航员的进度">
+        <div class="member-card__progress-track" role="progressbar" aria-valuenow="43" aria-valuemin="0" aria-valuemax="100" aria-label="升级到 L2 领航员的进度（展示示意）">
           <span class="member-card__progress-fill" style="width: 43%"></span>
         </div>
         <p class="member-card__progress-caption">
-          再消费 ¥172 升级 L2 领航员 · L2 积分 1.2 倍，L3 满 1000 元 1.5 倍
+          展示示意：累计实付接口属 M2 · L2 积分 1.2 倍，L3 满 1000 元 1.5 倍
         </p>
       </div>
 

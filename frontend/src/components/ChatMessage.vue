@@ -1,21 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import MarkdownIt from 'markdown-it'
-import DOMPurify from 'dompurify'
 import type { ChatDisplayMessage } from '@/stores/chat'
 import { toolLabel } from '@/api/chat'
+import { renderMarkdown } from '@/utils/markdown'
 
 /**
  * 聊天气泡（04-详细设计 v1.6 §5.4）：role 四分支渲染——SYSTEM 居中提示条、
  * USER 右侧、AI/AGENT 左侧（AGENT 独立 class，MVP 样式与 AI 相同，M3 只改样式不改结构）。
- * AI 内容经 markdown-it(html:false) 渲染 + DOMPurify 消毒，防提示注入；
+ * AI 内容走站内统一 Markdown 管线（utils/markdown：html:false + DOMPurify，防提示注入）；
  * 流式中的气泡带光标；历史/本次会话的工具调用摘要以 chip 展示。
  */
 const props = defineProps<{ msg: ChatDisplayMessage }>()
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
-
-const html = computed(() => DOMPurify.sanitize(md.render(props.msg.content)))
+const html = computed(() => renderMarkdown(props.msg.content))
 </script>
 
 <template>

@@ -25,3 +25,30 @@ export interface MenuResponse {
 export function getMenu(): Promise<MenuResponse> {
   return request<MenuResponse>('/api/user/menu')
 }
+
+export interface SpecOptionDto {
+  optionName: string
+  priceDelta: number
+}
+
+/** group 为枚举名（TEMPERATURE/SWEETNESS/ICE），label 为中文展示名 */
+export interface SpecGroupDto {
+  group: string
+  label: string
+  options: SpecOptionDto[]
+}
+
+export interface ProductDetail {
+  id: number
+  categoryId: number
+  categoryName: string
+  name: string
+  description: string
+  basePrice: number
+  tags: string[]
+  specs: SpecGroupDto[]
+}
+
+export function getProduct(id: number): Promise<ProductDetail> {
+  return request<ProductDetail>(`/api/user/products/${id}`)
+}

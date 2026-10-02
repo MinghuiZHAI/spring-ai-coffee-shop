@@ -7,8 +7,9 @@ import { useCartStore } from '@/stores/cart'
 import { listStores, type StoreBrief } from '@/api/store'
 import { getMenu } from '@/api/menu'
 import { createOrder } from '@/api/order'
+import { getCoupons, type CouponView } from '@/api/coupon'
 import { visualOf, type CategoryVisual } from '@/data/menu'
-import { parseSpecSnapshot } from '@/utils/specs'
+import { formatSpecDelta, parseSpecSnapshot } from '@/utils/specs'
 
 /**
  * 购物车（批次 7 接真数据）：cartStore 驱动商品行（specSnapshot 解析 + 步进器 PUT、
@@ -22,11 +23,49 @@ const router = useRouter()
 const lines = computed(() => cartStore.lines)
 const totalAmount = computed(() => cartStore.totalAmount)
 const totalQty = computed(() => cartStore.badgeCount)
-const estPoints = computed(() => Math.floor(totalAmount.value) * 10)
+/** 券抵扣（M2 批次 2）：选中券且合计仍满足门槛才生效；预估积分改按实付 ×10（01 v1.4.1 口径） */
+const discount = computed(() => {
+  const c = selectedCoupon.value
+  if (c === null || totalAmount.value < (c.thresholdAmount ?? 0)) return 0
+  return c.discountAmount ?? 0
+})
+
+const payable = computed(() => Math.max(totalAmount.value - discount.value, 0))
+
+const estPoints = computed(() => Math.floor(Math.max(payable.value, 0)) * 10)
+
+function qualifies(c: CouponView): boolean {
+  return totalAmount.value >= (c.thresholdAmount ?? 0)
+}
+
+function toggleCoupon(c: CouponView) {
+  if (!qualifies(c)) return
+  selectedCouponId.value = selectedCouponId.value === c.id ? null : c.id
+}
+
+function clearCoupon() {
+  selectedCouponId.value = null
+  couponPanelOpen.value = false
+}
+
+async function fetchCoupons() {
+  coupons.value = await getCoupons('UNUSED')
+}
+
+const couponEntryText = computed(() => {
+  if (discount.value > 0) return `-¥${discount.value}`
+  const usable = coupons.value.filter((c) => qualifies(c)).length
+  return usable > 0 ? `${usable} 张可用` : '暂无可用'
+})
 
 const stores = ref<StoreBrief[]>([])
 const storeId = ref<number | null>(null)
 const submitting = ref(false)
+
+/** 选券（M2 批次 2）：UNUSED 券 + 门槛预检 + 单选；下单携带 userCouponId */
+const coupons = ref<CouponView[]>([])
+const selectedCouponId = ref<number | null>(null)
+const couponPanelOpen = ref(false)
 
 /** 行/推荐卡的分类视觉：商品 id → 分类视觉映射来自真菜单（一次拉取复用） */
 const menuProducts = ref<Array<{ id: number; name: string; basePrice: number; visual: CategoryVisual }>>([])
@@ -43,6 +82,7 @@ onMounted(async () => {
   } catch {
     // 门店/菜单拉取失败不阻塞购物车本体（结算时再校验门店）
   }
+  await fetchCoupons().catch(() => {})
 })
 
 const recommends = computed(() =>
@@ -51,6 +91,16 @@ const recommends = computed(() =>
 
 function visualOfProduct(productId: number): CategoryVisual {
   return menuProducts.value.find((p) => p.id === productId)?.visual ?? visualOf(0)
+}
+
+const selectedCoupon = computed(() => coupons.value.find((c) => c.id === selectedCouponId.value) ?? null)
+
+/** 规格差价 = 行单价 − 菜单基础价（V7 演示数据：无糖 +3 / 去冰 +2）；商品不在菜单时返回 null 不展示 */
+function specDeltaOf(productId: number, unitPrice: number): number | null {
+  const base = menuProducts.value.find((p) => p.id === productId)?.basePrice
+  if (base === undefined) return null
+  const delta = Math.round((unitPrice - base) * 100) / 100
+  return delta === 0 ? null : delta
 }
 
 async function changeQty(line: (typeof lines.value)[number], delta: number) {
@@ -80,10 +130,17 @@ async function onCheckout() {
       storeId: storeId.value,
       pickupMethod: 'STORE_PICKUP',
       cartItemIds: lines.value.map((l) => l.id),
-      userCouponId: null,
+      // 券抵扣生效才携带 userCouponId（门槛随合计变化，提交前再校验一次）
+      userCouponId: discount.value > 0 && selectedCoupon.value ? selectedCoupon.value.id : null,
     })
     await cartStore.fetch().catch(() => {})
-    ElMessage.success(`下单成功：${created.orderNo}，请尽快支付`)
+    selectedCouponId.value = null
+    await fetchCoupons().catch(() => {})
+    ElMessage.success(
+      created.discountAmount > 0
+        ? `下单成功：${created.orderNo}，已优惠 ¥${created.discountAmount}，应付 ¥${created.payAmount}`
+        : `下单成功：${created.orderNo}，请尽快支付`,
+    )
     router.push(`/orders/${created.orderId}`)
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '下单失败，请稍后重试')
@@ -136,7 +193,13 @@ async function onCheckout() {
               :key="spec.group"
               class="cart-line__spec"
             >
-              <em>{{ spec.group }}</em>{{ spec.option }}
+              <em>{{ spec.label }}</em>{{ spec.option }}
+            </span>
+            <span
+              v-if="specDeltaOf(line.productId, line.unitPrice) !== null"
+              class="cart-line__spec cart-line__spec--delta"
+            >
+              {{ formatSpecDelta(specDeltaOf(line.productId, line.unitPrice)!) }}
             </span>
           </div>
           <span class="cart-line__unit">¥{{ line.unitPrice }}</span>
@@ -180,7 +243,7 @@ async function onCheckout() {
     <section class="cart__reco">
       <header class="cart__reco-head">
         <h3>猜你喜欢</h3>
-        <p>根据你的口味推荐</p>
+        <p>根据你的口味推荐 · 未选规格，按默认杯型下单</p>
       </header>
       <div class="cart__reco-rail">
         <article v-for="reco in recommends" :key="reco.id" class="reco-card">
@@ -211,18 +274,23 @@ async function onCheckout() {
       </div>
     </section>
 
-    <!-- 底部固定结算悬浮栏：门店选择 + 合计 + 下单 -->
+    <!-- 底部固定结算悬浮栏：门店 + 优惠券 + 应付合计 + 下单 -->
     <footer v-if="lines.length > 0" class="settle-bar">
       <div class="settle-bar__info">
-        <div class="settle-bar__store">
+        <div class="settle-bar__row">
           <span class="settle-bar__store-label">自取门店</span>
           <el-select v-model="storeId" class="settle-bar__store-select" size="small" placeholder="选择门店">
             <el-option v-for="store in stores" :key="store.id" :label="store.name" :value="store.id" />
           </el-select>
+          <button type="button" class="settle-bar__coupon" @click="couponPanelOpen = true">
+            <span class="settle-bar__coupon-label">优惠券</span>
+            <b class="settle-bar__coupon-value" :class="{ 'has-discount': discount > 0 }">{{ couponEntryText }}</b>
+          </button>
         </div>
         <div class="settle-bar__summary">
           <span class="settle-bar__total">
-            <i>¥</i>{{ totalAmount }}
+            <i>¥</i>{{ payable }}
+            <em v-if="discount > 0" class="settle-bar__discount">券抵扣 -¥{{ discount }}</em>
           </span>
           <span class="settle-bar__points">预计获得 {{ estPoints }} 积分</span>
         </div>
@@ -235,6 +303,40 @@ async function onCheckout() {
         去结算（{{ totalQty }}）
       </el-button>
     </footer>
+
+    <!-- 选券面板（M2 批次 2）：UNUSED 券 + 门槛预检置灰 + 单选 -->
+    <el-dialog v-model="couponPanelOpen" title="选择优惠券" width="440px">
+      <div class="coupon-panel">
+        <div
+          v-for="c in coupons"
+          :key="c.id"
+          class="coupon-item"
+          role="button"
+          tabindex="0"
+          :class="{ 'is-selected': c.id === selectedCouponId, 'is-disabled': !qualifies(c) }"
+          @click="toggleCoupon(c)"
+          @keydown.enter.prevent="toggleCoupon(c)"
+        >
+          <div class="coupon-item__face">
+            <span class="coupon-item__discount">¥{{ c.discountAmount }}</span>
+            <span class="coupon-item__threshold">{{ c.thresholdAmount ? `满${c.thresholdAmount}可用` : '无门槛' }}</span>
+          </div>
+          <div class="coupon-item__info">
+            <p class="coupon-item__name">{{ c.name }}</p>
+            <p class="coupon-item__expire">有效期至 {{ c.expireAt.slice(0, 10) }}</p>
+          </div>
+          <span v-if="!qualifies(c)" class="coupon-item__gap">
+            差 {{ Math.ceil((c.thresholdAmount ?? 0) - totalAmount) }} 元可用
+          </span>
+          <span v-else-if="c.id === selectedCouponId" class="coupon-item__picked">已选</span>
+        </div>
+        <p v-if="coupons.length === 0" class="coupon-panel__empty">暂无可用优惠券，可到「我的-优惠券」领取</p>
+      </div>
+      <template #footer>
+        <el-button @click="clearCoupon">不使用优惠券</el-button>
+        <el-button type="primary" @click="couponPanelOpen = false">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -361,6 +463,13 @@ async function onCheckout() {
     font-style: normal;
     margin-right: 3px;
     color: var(--ac-text-dim);
+  }
+
+  &.cart-line__spec--delta,
+  &--delta {
+    color: var(--ac-cta);
+    border-color: var(--ac-cta);
+    font-weight: 600;
   }
 }
 
@@ -581,8 +690,16 @@ async function onCheckout() {
 
 .settle-bar__info {
   display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--ac-space-2);
+  min-width: 0;
+}
+
+.settle-bar__row {
+  display: flex;
   align-items: center;
-  gap: var(--ac-space-4);
+  gap: var(--ac-space-3);
   min-width: 0;
 }
 
@@ -633,6 +750,150 @@ async function onCheckout() {
 
 .settle-bar__btn {
   flex: none;
+}
+
+/* 优惠券入口 chip */
+.settle-bar__coupon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 4px 12px;
+  font-family: var(--ac-font-body);
+  font-size: 12px;
+  color: var(--ac-text);
+  background: var(--ac-bg);
+  border: 1px dashed var(--ac-border);
+  border-radius: var(--ac-radius-pill);
+  cursor: pointer;
+  transition:
+    color var(--ac-dur-fast) var(--ac-ease-enter),
+    border-color var(--ac-dur-fast) var(--ac-ease-enter);
+
+  b {
+    font-weight: 600;
+  }
+
+  .has-discount {
+    color: var(--ac-cta);
+  }
+
+  &:hover {
+    color: var(--ac-primary);
+    border-color: var(--ac-primary);
+  }
+}
+
+.settle-bar__discount {
+  margin-left: 6px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--ac-success);
+}
+
+/* ===== 选券面板 ===== */
+.coupon-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-space-2);
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.coupon-item {
+  display: flex;
+  align-items: center;
+  gap: var(--ac-space-3);
+  padding: var(--ac-space-3);
+  background: var(--ac-card);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-card);
+  cursor: pointer;
+  transition:
+    border-color var(--ac-dur-fast) var(--ac-ease-enter),
+    background-color var(--ac-dur-fast) var(--ac-ease-enter);
+
+  &:hover:not(.is-disabled) {
+    border-color: var(--ac-primary);
+  }
+
+  &.is-selected {
+    border-color: var(--ac-primary);
+    background: var(--ac-tide);
+    box-shadow: var(--ac-shadow-sm);
+  }
+
+  &.is-disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.coupon-item__face {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  width: 76px;
+  padding: var(--ac-space-2) 0;
+  color: #fff;
+  background: var(--ac-cta);
+  border-radius: var(--ac-radius-btn);
+}
+
+.coupon-item__discount {
+  font-family: var(--ac-font-display);
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.coupon-item__threshold {
+  font-size: 10px;
+  opacity: 0.9;
+}
+
+.coupon-item__info {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.coupon-item__name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ac-primary-deep);
+}
+
+.coupon-item__expire {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ac-text-dim);
+}
+
+.coupon-item__gap {
+  flex: none;
+  font-size: 11px;
+  color: var(--ac-danger);
+}
+
+.coupon-item__picked {
+  flex: none;
+  font-size: 11px;
+  color: var(--ac-primary);
+  font-weight: 600;
+}
+
+.coupon-panel__empty {
+  margin: var(--ac-space-4) 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ac-text-dim);
 }
 
 /* ===== PC（≥768px）：悬浮栏居中悬浮于内容区下方 ===== */

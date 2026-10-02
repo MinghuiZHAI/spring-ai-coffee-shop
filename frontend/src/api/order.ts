@@ -10,8 +10,8 @@ export interface CreateOrderPayload {
   /** MVP 仅门店自取（PRD 决策） */
   pickupMethod: string
   cartItemIds: number[]
-  /** 批次 7 决策：下单不带券（结算选券列 M2） */
-  userCouponId: null
+  /** 使用的用户券 id；不使用传 null（M2 批次 2 起选券下单携带） */
+  userCouponId: number | null
 }
 
 export interface OrderCreatedResponse {

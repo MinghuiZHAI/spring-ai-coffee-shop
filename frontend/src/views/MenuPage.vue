@@ -2,17 +2,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import ProductCard from '@/components/ProductCard.vue'
+import SpecPicker from '@/components/SpecPicker.vue'
 import { visualOf } from '@/data/menu'
 import { getMenu, type MenuCategoryNode, type ProductCardDto } from '@/api/menu'
-import { useCartStore } from '@/stores/cart'
 
 /**
- * 菜单页（批次 7 接真数据）：GET /api/user/menu 驱动分类与商品卡；
+ * 菜单页（批次 7 接真数据 + M2 批次 1 规格选择器）：GET /api/user/menu 驱动分类与商品卡；
  * 分类胶囊（移动端顶部横滚 / PC 左侧粘性栏）+ 商品卡网格（移动 2 列 / PC 3 列），
  * 切换分类重放 40ms stagger 入场。分类视觉（tint/glyph）按分类 id 走 data/menu 映射。
- * 加入购物车 → cartStore.add（空 specs 合法，curl 已验证；完整规格选择器列 M2）。
+ * 加入购物车 → SpecPicker 规格弹窗（默认预填 + 差价试算）→ cartStore.add 带 specs。
  */
-const cartStore = useCartStore()
 
 const categories = ref<MenuCategoryNode[]>([])
 const activeId = ref<number | null>(null)
@@ -35,10 +34,17 @@ function countOf(categoryId: number): number {
   return categories.value.find((c) => c.id === categoryId)?.products.length ?? 0
 }
 
-/** 空 specs 直加（后端已验证合法；完整规格选择器列 M2） */
-async function onAdd(product: ProductCardDto) {
-  await cartStore.add(product.id, {}, 1)
-  ElMessage.success(`已加入购物车：${product.name}`)
+/** 加购 → 弹规格选择器（M2 批次 1） */
+const pickerProduct = ref<ProductCardDto | null>(null)
+const pickerVisible = ref(false)
+
+function onAdd(product: ProductCardDto) {
+  pickerProduct.value = product
+  pickerVisible.value = true
+}
+
+function onAdded(name: string, specText: string) {
+  ElMessage.success(`已加入购物车：${name}（${specText}）`)
 }
 </script>
 
@@ -83,6 +89,13 @@ async function onAdd(product: ProductCardDto) {
         <p v-if="!loading && filteredItems.length === 0" class="menu__empty">该分类暂无在售商品</p>
       </div>
     </div>
+
+    <SpecPicker
+      :product="pickerProduct"
+      :visible="pickerVisible"
+      @close="pickerVisible = false"
+      @added="onAdded"
+    />
   </div>
 </template>
 

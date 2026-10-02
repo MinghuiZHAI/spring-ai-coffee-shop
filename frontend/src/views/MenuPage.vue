@@ -1,24 +1,43 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import ProductCard from '@/components/ProductCard.vue'
-import { MENU_CATEGORIES, MENU_ITEMS, categoryOf, type MenuItem } from '@/data/menu'
+import { visualOf } from '@/data/menu'
+import { getMenu, type MenuCategoryNode, type ProductCardDto } from '@/api/menu'
+import { useCartStore } from '@/stores/cart'
 
 /**
- * 菜单页（M1-6 步骤 2，静态假数据）：分类胶囊（移动端顶部横滚 / PC 左侧粘性栏）
- * + 商品卡网格（移动 2 列 / PC 3 列）；切换分类重放 40ms stagger 入场。
- * 数据镜像 V2 种子（src/data/menu.ts），接后端后替换为 GET /api/user/menu。
+ * 菜单页（批次 7 接真数据）：GET /api/user/menu 驱动分类与商品卡；
+ * 分类胶囊（移动端顶部横滚 / PC 左侧粘性栏）+ 商品卡网格（移动 2 列 / PC 3 列），
+ * 切换分类重放 40ms stagger 入场。分类视觉（tint/glyph）按分类 id 走 data/menu 映射。
+ * 加入购物车 → cartStore.add（空 specs 合法，curl 已验证；完整规格选择器列 M2）。
  */
-const activeId = ref(MENU_CATEGORIES[0]!.id)
+const cartStore = useCartStore()
 
-const filteredItems = computed(() => MENU_ITEMS.filter((item) => item.categoryId === activeId.value))
+const categories = ref<MenuCategoryNode[]>([])
+const activeId = ref<number | null>(null)
+const loading = ref(true)
+
+const activeCategory = computed(() => categories.value.find((c) => c.id === activeId.value) ?? null)
+
+onMounted(async () => {
+  try {
+    categories.value = (await getMenu()).categories
+    activeId.value = categories.value[0]?.id ?? null
+  } finally {
+    loading.value = false
+  }
+})
+
+const filteredItems = computed(() => activeCategory.value?.products ?? [])
 
 function countOf(categoryId: number): number {
-  return MENU_ITEMS.filter((item) => item.categoryId === categoryId).length
+  return categories.value.find((c) => c.id === categoryId)?.products.length ?? 0
 }
 
-/** 步骤 3 接入真实购物车；当前仅以消息反馈点按（静态阶段） */
-function onAdd(product: MenuItem) {
+/** 空 specs 直加（后端已验证合法；完整规格选择器列 M2） */
+async function onAdd(product: ProductCardDto) {
+  await cartStore.add(product.id, {}, 1)
   ElMessage.success(`已加入购物车：${product.name}`)
 }
 </script>
@@ -27,14 +46,17 @@ function onAdd(product: MenuItem) {
   <div class="menu">
     <header class="menu__head">
       <h2 class="menu__title">菜单</h2>
-      <p class="menu__meta">{{ MENU_ITEMS.length }} 款 · 每日现制</p>
+      <p class="menu__meta">
+        <template v-if="!loading">{{ categories.reduce((sum, c) => sum + c.products.length, 0) }} 款 · 每日现制</template>
+        <template v-else>加载中…</template>
+      </p>
     </header>
 
     <div class="menu__layout">
       <!-- 分类：移动端顶部横滚胶囊 / PC 左侧粘性栏 -->
       <nav class="menu__cats" aria-label="商品分类">
         <button
-          v-for="category in MENU_CATEGORIES"
+          v-for="category in categories"
           :key="category.id"
           type="button"
           class="menu__cat"
@@ -47,15 +69,18 @@ function onAdd(product: MenuItem) {
       </nav>
 
       <!-- :key 驱动重挂载：切换分类时重放 40ms stagger 入场 -->
-      <div :key="activeId" class="menu__grid">
-        <ProductCard
-          v-for="(item, index) in filteredItems"
-          :key="item.id"
-          :product="item"
-          :category="categoryOf(item.categoryId)"
-          :index="index"
-          @add="onAdd"
-        />
+      <div :key="activeId ?? 'loading'" class="menu__grid">
+        <template v-if="!loading">
+          <ProductCard
+            v-for="(item, index) in filteredItems"
+            :key="item.id"
+            :product="item"
+            :category="visualOf(activeId ?? 0)"
+            :index="index"
+            @add="onAdd"
+          />
+        </template>
+        <p v-if="!loading && filteredItems.length === 0" class="menu__empty">该分类暂无在售商品</p>
       </div>
     </div>
   </div>
@@ -75,6 +100,15 @@ function onAdd(product: MenuItem) {
 
 .menu__meta {
   margin: 0;
+  font-size: 13px;
+  color: var(--ac-text-dim);
+}
+
+.menu__empty {
+  margin: 0;
+  grid-column: 1 / -1;
+  padding: var(--ac-space-6) 0;
+  text-align: center;
   font-size: 13px;
   color: var(--ac-text-dim);
 }

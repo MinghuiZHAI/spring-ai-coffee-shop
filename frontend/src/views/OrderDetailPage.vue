@@ -1,47 +1,140 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import StatusChip from '@/components/StatusChip.vue'
+import { getOrder, payOrder, pickupOrder, cancelOrder, applyRefund, type OrderDetail } from '@/api/order'
 import {
   MAIN_FLOW,
-  ORDERS,
-  ORDER_STATUS_META,
-  REFUND_STATUS_LABEL,
-  STATUS_HINT,
   formatTime,
-  parseSpecs,
-} from '@/data/orders'
+  isStatus,
+  normalizeStatus,
+  refundStatusLabel,
+  statusHint,
+  statusMeta,
+  type OrderStatus,
+} from '@/utils/orderDisplay'
+import { parseSpecSnapshot } from '@/utils/specs'
 
 /**
- * 订单详情（M1-6 步骤 3b，静态假数据）：
- * 状态头卡（主流程步进条/售后提示）→ 取餐码 → 门店信息 → 商品清单 →
- * 金额明细 → 退款单 → 按状态操作。接后端后由 GET /api/user/orders/{id} 替换。
+ * 订单详情（批次 7 接真数据）：GET /api/user/orders/{id} 驱动五段式渲染
+ * （状态头卡/取餐码/门店/商品清单/金额明细/退款单）+ 按状态操作
+ * （去支付/取消订单/确认取餐/申请退款——动作成功后重拉详情，状态流转由后端
+ * 模拟推进器与调度器推进，顶部提供手动刷新）。
  */
 const route = useRoute()
 
-const order = computed(() => ORDERS.find((o) => o.id === Number(route.params.id)))
+const order = ref<OrderDetail | null>(null)
+const loading = ref(true)
+const notFound = ref(false)
+const acting = ref(false)
 
-/** 主流程步进条：当前步索引（售后/取消态不展示） */
+async function load() {
+  const id = Number(route.params.id)
+  if (!Number.isFinite(id)) {
+    notFound.value = true
+    loading.value = false
+    return
+  }
+  loading.value = true
+  notFound.value = false
+  try {
+    order.value = await getOrder(id)
+  } catch {
+    order.value = null
+    notFound.value = true
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(() => route.params.id, () => load(), { immediate: true })
+
+/** 主流程步进条：当前步索引（售后/取消态不展示）；状态经规范化（接口为中文 label 口径） */
 const flowIndex = computed(() => {
   if (!order.value) {
     return -1
   }
-  return MAIN_FLOW.indexOf(order.value.status)
+  const normalized = normalizeStatus(order.value.status)
+  return normalized === null ? -1 : MAIN_FLOW.indexOf(normalized)
 })
 
 const showFlow = computed(() => flowIndex.value >= 0)
+
 const showPickupCode = computed(
-  () => !!order.value?.pickupCode && ['PAID_TODO', 'MAKING', 'READY'].includes(order.value.status),
+  () =>
+    !!order.value?.pickupCode &&
+    ['PAID_TODO', 'MAKING', 'READY'].some((s) => isStatus(order.value!.status, s as OrderStatus)),
 )
 
-function onAction(action: string) {
-  ElMessage.info(`「${action}」在真实接口接入后可用`)
+/** 状态动作统一执行：成功后重拉详情（模拟推进器会把状态推到下一拍） */
+async function act(fn: () => Promise<unknown>, successMsg?: string) {
+  if (acting.value || order.value === null) return
+  acting.value = true
+  try {
+    await fn()
+    if (successMsg) {
+      ElMessage.success(successMsg)
+    }
+    await load()
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败，请稍后重试')
+  } finally {
+    acting.value = false
+  }
+}
+
+function onPay() {
+  const id = order.value?.id
+  if (id === undefined) return
+  act(async () => {
+    await payOrder(id)
+  }, '支付成功')
+}
+
+function onPickup() {
+  const id = order.value?.id
+  if (id === undefined) return
+  act(async () => {
+    await pickupOrder(id)
+  }, '取餐完成，感谢惠顾')
+}
+
+function onCancel() {
+  const current = order.value
+  if (current === null) return
+  ElMessageBox.confirm(
+    `取消订单 ${current.orderNo}？待制作订单取消后自动全额退款`,
+    '取消订单',
+    { type: 'warning', confirmButtonText: '取消订单', cancelButtonText: '再想想' },
+  )
+    .then(() => act(async () => {
+      await cancelOrder(current.id)
+    }, '订单已取消'))
+    .catch(() => {})
+}
+
+function onRefund() {
+  const current = order.value
+  if (current === null) return
+  ElMessageBox.confirm(
+    `对订单 ${current.orderNo} 发起退款申请？`,
+    '申请退款',
+    { type: 'warning', confirmButtonText: '申请退款', cancelButtonText: '再想想' },
+  )
+    .then(() => act(async () => {
+      await applyRefund(current.id)
+    }, '退款申请已提交'))
+    .catch(() => {})
 }
 </script>
 
 <template>
-  <div v-if="order" class="detail">
+  <div v-if="loading" class="detail detail--missing">
+    <p class="detail__missing-text">加载中…</p>
+  </div>
+
+  <div v-else-if="order" class="detail">
     <header class="detail__head">
       <RouterLink to="/orders" class="detail__back" aria-label="返回订单列表">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -51,16 +144,22 @@ function onAction(action: string) {
       </RouterLink>
     </header>
 
-    <!-- 状态头卡：chip + 提示 + 主流程步进条 -->
+    <!-- 状态头卡：chip + 提示 + 主流程步进条 + 手动刷新 -->
     <section class="detail__status">
       <div class="detail__status-row">
         <StatusChip
-          :label="ORDER_STATUS_META[order.status].label"
-          :tone="ORDER_STATUS_META[order.status].tone"
+          :label="statusMeta(order.status).label"
+          :tone="statusMeta(order.status).tone"
         />
         <span class="detail__no">{{ order.orderNo }}</span>
+        <button type="button" class="detail__refresh" aria-label="刷新订单状态" @click="load">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+        </button>
       </div>
-      <p class="detail__hint">{{ STATUS_HINT[order.status] }}</p>
+      <p class="detail__hint">{{ statusHint(order.status) }}</p>
 
       <!-- 主流程步进条（待支付→待制作→制作中→待取餐→已完成） -->
       <ol v-if="showFlow" class="detail__flow" aria-label="订单进度">
@@ -71,7 +170,7 @@ function onAction(action: string) {
           :class="{ 'is-done': index < flowIndex, 'is-current': index === flowIndex }"
         >
           <span class="detail__flow-dot"></span>
-          <span class="detail__flow-label">{{ ORDER_STATUS_META[step].label }}</span>
+          <span class="detail__flow-label">{{ statusMeta(step).label }}</span>
         </li>
       </ol>
     </section>
@@ -98,10 +197,6 @@ function onAction(action: string) {
         <span class="detail__kv-key">预计完成</span>
         <span class="detail__kv-value">{{ formatTime(order.expectedFinishTime, true) }}</span>
       </div>
-      <div v-if="order.status === 'PENDING_PAYMENT' && order.expireAt" class="detail__kv">
-        <span class="detail__kv-key">支付截止</span>
-        <span class="detail__kv-value">{{ formatTime(order.expireAt, true) }}</span>
-      </div>
     </section>
 
     <!-- 商品清单 -->
@@ -111,7 +206,7 @@ function onAction(action: string) {
         <div class="detail__item-info">
           <span class="detail__item-name">{{ item.productName }}</span>
           <span
-            v-for="spec in parseSpecs(item.specSnapshot)"
+            v-for="spec in parseSpecSnapshot(item.specSnapshot)"
             :key="spec.group"
             class="detail__item-spec"
           >
@@ -153,7 +248,7 @@ function onAction(action: string) {
       </div>
       <div class="detail__kv">
         <span class="detail__kv-key">退款状态</span>
-        <span class="detail__kv-value">{{ REFUND_STATUS_LABEL[order.refund.status] }}</span>
+        <span class="detail__kv-value">{{ refundStatusLabel(order.refund.status) }}</span>
       </div>
       <div class="detail__kv">
         <span class="detail__kv-key">退款金额</span>
@@ -172,28 +267,32 @@ function onAction(action: string) {
     <!-- 按状态操作 -->
     <div class="detail__actions">
       <el-button
-        v-if="order.status === 'PENDING_PAYMENT'"
-        @click="onAction('取消订单')"
+        v-if="isStatus(order.status, 'PENDING_PAYMENT')"
+        :disabled="acting"
+        @click="onCancel"
       >
         取消订单
       </el-button>
       <el-button
-        v-if="order.status === 'READY'"
+        v-if="isStatus(order.status, 'READY')"
         class="el-button--cta"
-        @click="onAction('确认取餐')"
+        :disabled="acting"
+        @click="onPickup"
       >
         确认取餐
       </el-button>
       <el-button
-        v-if="order.status === 'COMPLETED'"
-        @click="onAction('申请退款（完成后 24 小时内）')"
+        v-if="isStatus(order.status, 'COMPLETED')"
+        :disabled="acting"
+        @click="onRefund"
       >
         申请退款
       </el-button>
       <el-button
-        v-if="order.status === 'PENDING_PAYMENT'"
+        v-if="isStatus(order.status, 'PENDING_PAYMENT')"
         class="el-button--cta"
-        @click="onAction('去支付')"
+        :disabled="acting"
+        @click="onPay"
       >
         去支付
       </el-button>
@@ -274,6 +373,33 @@ function onAction(action: string) {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.3px;
   color: var(--ac-text-dim);
+}
+
+.detail__refresh {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-pill);
+  background: var(--ac-card);
+  color: var(--ac-text-dim);
+  cursor: pointer;
+  transition:
+    color var(--ac-dur-fast) var(--ac-ease-enter),
+    border-color var(--ac-dur-fast) var(--ac-ease-enter);
+
+  svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  &:hover {
+    color: var(--ac-primary);
+    border-color: var(--ac-primary);
+  }
 }
 
 .detail__hint {

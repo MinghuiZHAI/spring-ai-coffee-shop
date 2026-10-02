@@ -1,20 +1,21 @@
 <script setup lang="ts">
-import type { MenuCategory, MenuItem } from '@/data/menu'
+import type { CategoryVisual } from '@/data/menu'
+import type { ProductCardDto } from '@/api/menu'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
 
 /**
- * 商品卡（M1-6 步骤 2）：分类渐变图占位（真实商品图就位后替换）、名称、
+ * 商品卡（M1-6 步骤 2，批次 7 接真数据）：分类渐变图占位（真实商品图就位后替换）、名称、
  * 两行描述、口味标签 chip、价格（tabular 数字）、烘焙琥珀 CTA。
  * 入场 stagger：delay 由父级按网格序传入（40ms/卡）。
  */
 const props = defineProps<{
-  product: MenuItem
-  category: MenuCategory
+  product: ProductCardDto
+  category: CategoryVisual
   index: number
 }>()
 
 defineEmits<{
-  add: [product: MenuItem]
+  add: [product: ProductCardDto]
 }>()
 </script>
 
@@ -42,7 +43,7 @@ defineEmits<{
       <div class="pcard__foot">
         <span class="pcard__price">
           <span class="pcard__price-symbol">¥</span>
-          <span class="pcard__price-value">{{ props.product.price }}</span>
+          <span class="pcard__price-value">{{ props.product.basePrice }}</span>
         </span>
 
         <el-button class="el-button--cta" size="small" @click="$emit('add', props.product)">

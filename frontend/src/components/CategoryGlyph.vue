@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { MenuCategory } from '@/data/menu'
+import type { CategoryVisual } from '@/data/menu'
 
 /**
  * 分类线稿 glyph（Lucide 风格，与底栏图标同一视觉语言）。
  * 商品卡 / 购物车行 / 推荐横滚共用，保证占位图形的视觉一致性。
  */
 const props = defineProps<{
-  category: MenuCategory
+  category: CategoryVisual
   size?: number
 }>()
 
 const GLYPHS: Record<
-  MenuCategory['glyph'],
+  CategoryVisual['glyph'],
   { paths: string[]; circles?: Array<[number, number, number]>; dots?: Array<[number, number]> }
 > = {
   coffee: {

@@ -1,41 +1,95 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import CategoryGlyph from '@/components/CategoryGlyph.vue'
-import { CART_LINES, RECOMMEND_IDS, type CartLine } from '@/data/cart'
-import { categoryOf, MENU_ITEMS } from '@/data/menu'
+import { useCartStore } from '@/stores/cart'
+import { listStores, type StoreBrief } from '@/api/store'
+import { getMenu } from '@/api/menu'
+import { createOrder } from '@/api/order'
+import { visualOf, type CategoryVisual } from '@/data/menu'
+import { parseSpecSnapshot } from '@/utils/specs'
 
 /**
- * 购物车（M1-6 步骤 3a，静态假数据）：
- * 商品行（规格快照 chip + 数量步进器）→ 猜你喜欢横滚 → 底部固定结算悬浮栏
- * （合计 + 预估积分 + 去结算）。预估积分 = 合计金额 × 10（M1 规则：1 元 = 10 分）。
+ * 购物车（批次 7 接真数据）：cartStore 驱动商品行（specSnapshot 解析 + 步进器 PUT、
+ * 删除 DELETE）→ 猜你喜欢横滚（真菜单数据，排除已在购物车的商品）→ 底部固定结算悬浮栏
+ * （门店下拉 GET /api/user/stores + 合计 totalAmount + 预估积分 ×10）
+ * → POST /api/user/orders（批次 7 决策：不带券 userCouponId=null，选券列 M2）→ 跳订单详情。
  */
-const lines = ref<CartLine[]>(CART_LINES.map((line) => ({ ...line, specs: [...line.specs] })))
+const cartStore = useCartStore()
+const router = useRouter()
 
-const total = computed(() =>
-  lines.value.reduce((sum, line) => sum + line.product.price * line.quantity, 0),
+const lines = computed(() => cartStore.lines)
+const totalAmount = computed(() => cartStore.totalAmount)
+const totalQty = computed(() => cartStore.badgeCount)
+const estPoints = computed(() => Math.floor(totalAmount.value) * 10)
+
+const stores = ref<StoreBrief[]>([])
+const storeId = ref<number | null>(null)
+const submitting = ref(false)
+
+/** 行/推荐卡的分类视觉：商品 id → 分类视觉映射来自真菜单（一次拉取复用） */
+const menuProducts = ref<Array<{ id: number; name: string; basePrice: number; visual: CategoryVisual }>>([])
+
+onMounted(async () => {
+  await cartStore.fetch().catch(() => {})
+  try {
+    const [storesRes, menuRes] = await Promise.all([listStores(), getMenu()])
+    stores.value = storesRes.stores
+    storeId.value = storesRes.stores[0]?.id ?? null
+    menuProducts.value = menuRes.categories.flatMap((c) =>
+      c.products.map((p) => ({ id: p.id, name: p.name, basePrice: p.basePrice, visual: visualOf(c.id) })),
+    )
+  } catch {
+    // 门店/菜单拉取失败不阻塞购物车本体（结算时再校验门店）
+  }
+})
+
+const recommends = computed(() =>
+  menuProducts.value.filter((p) => !lines.value.some((l) => l.productId === p.id)).slice(0, 6),
 )
 
-const totalQty = computed(() => lines.value.reduce((sum, line) => sum + line.quantity, 0))
-
-/** 预估积分（实付 1 元 = 10 分，对齐后端 PointService 规则） */
-const estPoints = computed(() => Math.floor(total.value) * 10)
-
-function changeQty(line: CartLine, delta: number) {
-  line.quantity = Math.max(1, line.quantity + delta)
+function visualOfProduct(productId: number): CategoryVisual {
+  return menuProducts.value.find((p) => p.id === productId)?.visual ?? visualOf(0)
 }
 
-/** 猜你喜欢：静态阶段与菜单共用假数据 */
-const recommends = RECOMMEND_IDS.map((id) => MENU_ITEMS.find((product) => product.id === id)!).map(
-  (product) => ({ product, category: categoryOf(product.categoryId) }),
-)
-
-function onAddReco(product: { name: string }) {
-  ElMessage.success(`已加入购物车：${product.name}`)
+async function changeQty(line: (typeof lines.value)[number], delta: number) {
+  const next = line.quantity + delta
+  if (next < 1) return
+  await cartStore.updateQty(line.id, next)
 }
 
-function onCheckout() {
-  ElMessage.info('去结算将在「订单」步骤接入')
+async function removeLine(line: (typeof lines.value)[number]) {
+  await cartStore.remove(line.id)
+}
+
+async function onAddReco(productId: number, name: string) {
+  await cartStore.add(productId, {}, 1)
+  ElMessage.success(`已加入购物车：${name}`)
+}
+
+async function onCheckout() {
+  if (submitting.value || lines.value.length === 0) return
+  if (storeId.value === null) {
+    ElMessage.warning('请选择自取门店')
+    return
+  }
+  submitting.value = true
+  try {
+    const created = await createOrder({
+      storeId: storeId.value,
+      pickupMethod: 'STORE_PICKUP',
+      cartItemIds: lines.value.map((l) => l.id),
+      userCouponId: null,
+    })
+    await cartStore.fetch().catch(() => {})
+    ElMessage.success(`下单成功：${created.orderNo}，请尽快支付`)
+    router.push(`/orders/${created.orderId}`)
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '下单失败，请稍后重试')
+  } finally {
+    submitting.value = false
+  }
 }
 </script>
 
@@ -46,28 +100,46 @@ function onCheckout() {
       <p class="cart__meta">{{ totalQty }} 件商品</p>
     </header>
 
+    <!-- 空态：真购物车可为空 -->
+    <section v-if="!cartStore.loading && lines.length === 0" class="cart__empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M17 8h1a4 4 0 1 1 0 8h-1" />
+        <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" />
+        <path d="M6 2v2" />
+        <path d="M10 2v2" />
+        <path d="M14 2v2" />
+      </svg>
+      <p class="cart__empty-title">购物车还是空的</p>
+      <p class="cart__empty-hint">去菜单挑一杯，开启今天的航行</p>
+      <RouterLink to="/menu" class="cart__empty-cta">去点单</RouterLink>
+    </section>
+
     <!-- 商品行：规格快照 + 步进器 -->
-    <section class="cart__list">
-      <article v-for="line in lines" :key="line.productId" class="cart-line">
+    <section v-else class="cart__list">
+      <article v-for="line in lines" :key="line.id" class="cart-line">
         <div
           class="cart-line__media"
           :style="{
-            background: `linear-gradient(135deg, ${categoryOf(line.product.categoryId).tint[0]}, ${categoryOf(line.product.categoryId).tint[1]})`,
+            background: `linear-gradient(135deg, ${visualOfProduct(line.productId).tint[0]}, ${visualOfProduct(line.productId).tint[1]})`,
           }"
           role="img"
-          :aria-label="`${line.product.name} 商品图占位`"
+          :aria-label="`${line.productName} 商品图占位`"
         >
-          <CategoryGlyph :category="categoryOf(line.product.categoryId)" :size="30" />
+          <CategoryGlyph :category="visualOfProduct(line.productId)" :size="30" />
         </div>
 
         <div class="cart-line__info">
-          <h3 class="cart-line__name">{{ line.product.name }}</h3>
-          <div v-if="line.specs.length" class="cart-line__specs">
-            <span v-for="spec in line.specs" :key="spec.group" class="cart-line__spec">
+          <h3 class="cart-line__name">{{ line.productName }}</h3>
+          <div v-if="parseSpecSnapshot(line.specSnapshot).length" class="cart-line__specs">
+            <span
+              v-for="spec in parseSpecSnapshot(line.specSnapshot)"
+              :key="spec.group"
+              class="cart-line__spec"
+            >
               <em>{{ spec.group }}</em>{{ spec.option }}
             </span>
           </div>
-          <span class="cart-line__unit">¥{{ line.product.price }}</span>
+          <span class="cart-line__unit">¥{{ line.unitPrice }}</span>
         </div>
 
         <div class="cart-line__side">
@@ -96,7 +168,10 @@ function onCheckout() {
               </svg>
             </button>
           </div>
-          <span class="cart-line__amount">¥{{ line.product.price * line.quantity }}</span>
+          <div class="cart-line__side-bottom">
+            <span class="cart-line__amount">¥{{ line.unitPrice * line.quantity }}</span>
+            <button type="button" class="cart-line__remove" @click="removeLine(line)">删除</button>
+          </div>
         </div>
       </article>
     </section>
@@ -108,23 +183,23 @@ function onCheckout() {
         <p>根据你的口味推荐</p>
       </header>
       <div class="cart__reco-rail">
-        <article v-for="reco in recommends" :key="reco.product.id" class="reco-card">
+        <article v-for="reco in recommends" :key="reco.id" class="reco-card">
           <div
             class="reco-card__media"
-            :style="{ background: `linear-gradient(135deg, ${reco.category.tint[0]}, ${reco.category.tint[1]})` }"
+            :style="{ background: `linear-gradient(135deg, ${reco.visual.tint[0]}, ${reco.visual.tint[1]})` }"
             role="img"
-            :aria-label="`${reco.product.name} 商品图占位`"
+            :aria-label="`${reco.name} 商品图占位`"
           >
-            <CategoryGlyph :category="reco.category" :size="34" />
+            <CategoryGlyph :category="reco.visual" :size="34" />
           </div>
-          <h4 class="reco-card__name">{{ reco.product.name }}</h4>
+          <h4 class="reco-card__name">{{ reco.name }}</h4>
           <div class="reco-card__foot">
-            <span class="reco-card__price">¥{{ reco.product.price }}</span>
+            <span class="reco-card__price">¥{{ reco.basePrice }}</span>
             <button
               type="button"
               class="reco-card__add"
-              :aria-label="`加入购物车 ${reco.product.name}`"
-              @click="onAddReco(reco.product)"
+              :aria-label="`加入购物车 ${reco.name}`"
+              @click="onAddReco(reco.id, reco.name)"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
                 <path d="M12 5v14" />
@@ -136,15 +211,27 @@ function onCheckout() {
       </div>
     </section>
 
-    <!-- 底部固定结算悬浮栏 -->
-    <footer class="settle-bar">
+    <!-- 底部固定结算悬浮栏：门店选择 + 合计 + 下单 -->
+    <footer v-if="lines.length > 0" class="settle-bar">
       <div class="settle-bar__info">
-        <span class="settle-bar__total">
-          <i>¥</i>{{ total }}
-        </span>
-        <span class="settle-bar__points">预计获得 {{ estPoints }} 积分</span>
+        <div class="settle-bar__store">
+          <span class="settle-bar__store-label">自取门店</span>
+          <el-select v-model="storeId" class="settle-bar__store-select" size="small" placeholder="选择门店">
+            <el-option v-for="store in stores" :key="store.id" :label="store.name" :value="store.id" />
+          </el-select>
+        </div>
+        <div class="settle-bar__summary">
+          <span class="settle-bar__total">
+            <i>¥</i>{{ totalAmount }}
+          </span>
+          <span class="settle-bar__points">预计获得 {{ estPoints }} 积分</span>
+        </div>
       </div>
-      <el-button class="el-button--cta settle-bar__btn" @click="onCheckout">
+      <el-button
+        class="el-button--cta settle-bar__btn"
+        :loading="submitting"
+        @click="onCheckout"
+      >
         去结算（{{ totalQty }}）
       </el-button>
     </footer>
@@ -167,6 +254,50 @@ function onCheckout() {
   margin: 0;
   font-size: 13px;
   color: var(--ac-text-dim);
+}
+
+/* ===== 空态 ===== */
+.cart__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ac-space-2);
+  padding: var(--ac-space-8) 0;
+
+  svg {
+    width: 44px;
+    height: 44px;
+    color: var(--ac-text-dim);
+    opacity: 0.5;
+  }
+}
+
+.cart__empty-title {
+  margin: var(--ac-space-2) 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ac-text);
+}
+
+.cart__empty-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ac-text-dim);
+}
+
+.cart__empty-cta {
+  margin-top: var(--ac-space-3);
+  padding: 8px 28px;
+  font-size: 14px;
+  color: #fff;
+  text-decoration: none;
+  background: var(--ac-cta);
+  border-radius: var(--ac-radius-pill);
+  transition: background-color var(--ac-dur-fast) var(--ac-ease-enter);
+
+  &:hover {
+    background: var(--ac-cta-hover);
+  }
 }
 
 /* ===== 商品行 ===== */
@@ -243,6 +374,25 @@ function onCheckout() {
   flex-direction: column;
   align-items: flex-end;
   gap: var(--ac-space-2);
+}
+
+.cart-line__side-bottom {
+  display: flex;
+  align-items: center;
+  gap: var(--ac-space-3);
+}
+
+.cart-line__remove {
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--ac-text-dim);
+  cursor: pointer;
+  padding: 0;
+
+  &:hover {
+    color: var(--ac-danger);
+  }
 }
 
 /* ===== 数量步进器 ===== */
@@ -431,6 +581,30 @@ function onCheckout() {
 
 .settle-bar__info {
   display: flex;
+  align-items: center;
+  gap: var(--ac-space-4);
+  min-width: 0;
+}
+
+.settle-bar__store {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settle-bar__store-label {
+  flex: none;
+  font-size: 11px;
+  color: var(--ac-text-dim);
+}
+
+.settle-bar__store-select {
+  width: 128px;
+}
+
+.settle-bar__summary {
+  display: flex;
   flex-direction: column;
   gap: 2px;
 }
@@ -480,6 +654,33 @@ function onCheckout() {
 @media (max-width: 767.98px) {
   .cart {
     padding-bottom: calc(var(--ac-tabbar-h) + 140px);
+  }
+
+  /* 移动端悬浮栏收纳：门店选择下移一行，避免挤压合计 */
+  .settle-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--ac-space-2);
+  }
+
+  .settle-bar__info {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--ac-space-2);
+  }
+
+  .settle-bar__store {
+    justify-content: space-between;
+  }
+
+  .settle-bar__store-select {
+    flex: 1;
+  }
+
+  .settle-bar__summary {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
   }
 }
 </style>

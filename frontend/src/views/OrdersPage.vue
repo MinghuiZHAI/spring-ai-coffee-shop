@@ -1,19 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, ref, watch } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import StatusChip from '@/components/StatusChip.vue'
-import {
-  ORDERS,
-  ORDER_STATUS_META,
-  formatTime,
-  type OrderStatus,
-  type OrderView,
-} from '@/data/orders'
+import { listOrders, payOrder, pickupOrder, cancelOrder, applyRefund, type OrderBrief } from '@/api/order'
+import { formatTime, isStatus, statusMeta, type OrderStatus } from '@/utils/orderDisplay'
 
 /**
- * 订单列表（M1-6 步骤 3b，静态假数据）：
- * 状态筛选胶囊（全部 + 主流程 + 售后）+ 订单卡（状态 chip/商品摘要/实付/按状态操作）。
- * 接后端后由 GET /api/user/orders?status= 替换（游标分页）。
+ * 订单列表（批次 7 接真数据）：GET /api/user/orders（游标分页，status 服务端筛选）。
+ * 状态筛选胶囊：全部/单状态走服务端参数；「售后」为三状态聚合（退款中/已退款/已取消），
+ * 服务端无聚合参数——拉全量后在客户端过滤。订单卡操作（去支付/取消/取餐/退款）
+ * 调真实接口，成功后重拉当前筛选视图。
  */
 type FilterKey = 'ALL' | OrderStatus | 'AFTER_SALE'
 
@@ -27,33 +23,73 @@ const FILTERS: Array<{ key: FilterKey; label: string }> = [
   { key: 'AFTER_SALE', label: '售后' },
 ]
 
-const activeFilter = ref<FilterKey>('ALL')
-
 const AFTER_SALE_STATUSES: OrderStatus[] = ['REFUNDING', 'REFUNDED', 'CANCELLED']
 
-const filteredOrders = computed(() => {
-  if (activeFilter.value === 'ALL') {
-    return ORDERS
-  }
-  if (activeFilter.value === 'AFTER_SALE') {
-    return ORDERS.filter((order) => AFTER_SALE_STATUSES.includes(order.status))
-  }
-  return ORDERS.filter((order) => order.status === activeFilter.value)
-})
+const activeFilter = ref<FilterKey>('ALL')
+const orders = ref<OrderBrief[]>([])
+const cursor = ref<number | null>(null)
+const exhausted = ref(false)
+const loading = ref(false)
 
-/** 商品摘要：首商品 ×数量，多件追加"等 N 件" */
-function itemSummary(order: OrderView): string {
-  const first = order.items[0]
-  if (!first) {
-    return ''
+const isAfterSaleView = computed(() => activeFilter.value === 'AFTER_SALE')
+
+const filteredOrders = computed(() =>
+  isAfterSaleView.value
+    ? orders.value.filter((o) => AFTER_SALE_STATUSES.some((s) => isStatus(o.status, s)))
+    : orders.value,
+)
+
+async function fetchOrders(reset = true) {
+  if (loading.value) return
+  loading.value = true
+  try {
+    const status = activeFilter.value === 'ALL' || isAfterSaleView.value ? undefined : activeFilter.value
+    const page = await listOrders(reset ? undefined : cursor.value ?? undefined, 10, status)
+    orders.value = reset ? page.list : [...orders.value, ...page.list]
+    cursor.value = page.nextCursor
+    exhausted.value = page.nextCursor === null
+  } finally {
+    loading.value = false
   }
-  const base = `${first.productName} ×${first.quantity}`
-  const restQty = order.items.slice(1).reduce((sum, item) => sum + item.quantity, 0)
-  return restQty > 0 ? `${base} 等 ${restQty + first.quantity} 件` : base
 }
 
-function onAction(order: OrderView, action: string) {
-  ElMessage.info(`「${action}」在真实接口接入后可用（订单 ${order.orderNo}）`)
+watch(activeFilter, () => fetchOrders(true))
+fetchOrders(true)
+
+/** 订单卡快捷操作：真实接口 + 成功后重拉当前视图（状态机冲突等错误由 ApiError 带出） */
+async function onPay(order: OrderBrief) {
+  await payOrder(order.id)
+  ElMessageBox.alert(`订单 ${order.orderNo} 支付成功`, '支付完成', { confirmButtonText: '知道了' }).catch(() => {})
+  await fetchOrders(true)
+}
+
+async function onPickup(order: OrderBrief) {
+  await pickupOrder(order.id)
+  await fetchOrders(true)
+}
+
+async function onCancel(order: OrderBrief) {
+  const ok = await ElMessageBox.confirm(`取消订单 ${order.orderNo}？待制作订单取消后自动全额退款`, '取消订单', {
+    type: 'warning',
+    confirmButtonText: '取消订单',
+    cancelButtonText: '再想想',
+  }).then(() => true)
+    .catch(() => false)
+  if (!ok) return
+  await cancelOrder(order.id)
+  await fetchOrders(true)
+}
+
+async function onRefund(order: OrderBrief) {
+  const ok = await ElMessageBox.confirm(`对订单 ${order.orderNo} 发起退款申请？`, '申请退款', {
+    type: 'warning',
+    confirmButtonText: '申请退款',
+    cancelButtonText: '再想想',
+  }).then(() => true)
+    .catch(() => false)
+  if (!ok) return
+  await applyRefund(order.id)
+  await fetchOrders(true)
 }
 </script>
 
@@ -107,7 +143,7 @@ function onAction(order: OrderView, action: string) {
           </div>
 
           <div class="order-card__row order-card__row--body">
-            <span class="order-card__summary">{{ itemSummary(order) }}</span>
+            <span class="order-card__summary">{{ order.itemSummary }}</span>
             <span class="order-card__amount">
               <i>¥</i>{{ order.payAmount }}
             </span>
@@ -115,8 +151,8 @@ function onAction(order: OrderView, action: string) {
 
           <div class="order-card__row">
             <StatusChip
-              :label="ORDER_STATUS_META[order.status].label"
-              :tone="ORDER_STATUS_META[order.status].tone"
+              :label="statusMeta(order.status).label"
+              :tone="statusMeta(order.status).tone"
             />
             <span class="order-card__store">{{ order.storeName.replace('Atlantic Coffee·', '') }}</span>
           </div>
@@ -126,21 +162,21 @@ function onAction(order: OrderView, action: string) {
           <el-button
             v-if="order.status === 'PENDING_PAYMENT'"
             size="small"
-            @click="onAction(order, '取消订单')"
+            @click="onCancel(order)"
           >
             取消订单
           </el-button>
           <el-button
             v-if="order.status === 'COMPLETED'"
             size="small"
-            @click="onAction(order, '申请退款')"
+            @click="onRefund(order)"
           >
             申请退款
           </el-button>
           <el-button
             v-if="order.status === 'READY'"
             size="small"
-            @click="onAction(order, '确认取餐')"
+            @click="onPickup(order)"
           >
             确认取餐
           </el-button>
@@ -148,14 +184,22 @@ function onAction(order: OrderView, action: string) {
             v-if="order.status === 'PENDING_PAYMENT'"
             class="el-button--cta"
             size="small"
-            @click="onAction(order, '去支付')"
+            @click="onPay(order)"
           >
             去支付
           </el-button>
         </div>
       </article>
 
-      <p v-if="filteredOrders.length === 0" class="orders__empty">该状态下暂无订单</p>
+      <p v-if="filteredOrders.length === 0 && !loading" class="orders__empty">该状态下暂无订单</p>
+      <el-button
+        v-if="!exhausted && filteredOrders.length > 0"
+        class="orders__more"
+        :loading="loading"
+        @click="fetchOrders(false)"
+      >
+        加载更多
+      </el-button>
     </div>
   </div>
 </template>
@@ -335,6 +379,11 @@ function onAction(order: OrderView, action: string) {
   text-align: center;
   font-size: 14px;
   color: var(--ac-text-dim);
+}
+
+.orders__more {
+  display: block;
+  margin: var(--ac-space-4) auto 0;
 }
 
 @media (min-width: 768px) {

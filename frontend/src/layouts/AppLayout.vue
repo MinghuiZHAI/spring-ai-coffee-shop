@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import ChatWidget from '@/components/ChatWidget.vue'
-import { CART_LINES } from '@/data/cart'
+import { useCartStore } from '@/stores/cart'
 
 /**
  * 全局壳（M1-6 步骤 1）：
@@ -19,8 +20,15 @@ const NAV_ITEMS = [
   { name: 'profile', label: '我的', to: '/profile', pcHide: false },
 ] as const
 
-/** 购物车角标（静态假数据，接后端后由购物车 store 驱动） */
-const cartCount = CART_LINES.reduce((sum, line) => sum + line.quantity, 0)
+/** 购物车角标（批次 7）：cartStore 唯一数据源——AppLayout 挂载即拉取，
+ * 菜单加购/购物车页变更后由 store 自动联动 */
+const cartStore = useCartStore()
+
+onMounted(() => {
+  void cartStore.fetch()
+})
+
+const cartCount = computed(() => cartStore.badgeCount)
 </script>
 
 <template>
